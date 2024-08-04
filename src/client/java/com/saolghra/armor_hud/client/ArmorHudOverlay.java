@@ -17,31 +17,44 @@ public class ArmorHudOverlay {
         // Get armor items
         ItemStack[] armorItems = client.player.getInventory().armor.toArray(new ItemStack[0]);
 
-        // Define position for armor boxes
-        int xOffset = 10;
-        int yOffset = 10;
+        // Position for the armor boxes
         int boxSize = 20;
         int spacing = 4;
+
+        // Get screen width and height
+        int screenWidth = client.getWindow().getScaledWidth();
+        int screenHeight = client.getWindow().getScaledHeight();
+
+        // Calculate the position for the offhand slot
+        int offhandSlotX = screenWidth / 2 + 10;
+        int offhandSlotY = screenHeight - 60;
+
+        // Offset based on offhand slot position
+        int xOffset = offhandSlotX - (armorItems.length * (boxSize + spacing) + spacing);
+        int yOffset = offhandSlotY;
 
         // Bind the hotbar texture
         context.getMatrices().push();
         context.getMatrices().scale(1.0f, 1.0f, 1.0f);
         context.getMatrices().pop();
 
-        for (int i = 0; i < armorItems.length; i++) {
+        // int i = 0; i < armorItems.length; i++
+        for (int i = armorItems.length - 1; i >= 0; i--) {
             ItemStack armorItem = armorItems[i];
 
             if (!armorItem.isEmpty()) {
                 // Draw box background
-                drawTexture(context, xOffset, yOffset + (i * (boxSize + spacing)), 0, 0, boxSize, boxSize, 256, 256);
+                int armorSpacing = (armorItems.length - 1 - i) * (boxSize + spacing);
+
+                drawTexture(context, xOffset + armorSpacing, yOffset, 0, 0, boxSize, boxSize, 256, 256);
 
                 // Draw armor icon
-                context.drawItem(armorItem, xOffset + 2, yOffset + (i * (boxSize + spacing)) + 2);
+                context.drawItem(armorItem, xOffset + armorSpacing + 2, yOffset + 2);
 
                 // Draw the durability bar
                 int durability = armorItem.getMaxDamage() - armorItem.getDamage();
                 int durabilityWidth = (int) ((durability / (float) armorItem.getMaxDamage()) * boxSize);
-                fill(context, xOffset, yOffset + (i * (boxSize + spacing)) + boxSize - 4, xOffset + durabilityWidth, yOffset + (i * (boxSize + spacing)) + boxSize, 0xFF00FF00); // Green for durability
+                fill(context, xOffset + armorSpacing, yOffset + boxSize - 4, xOffset + armorSpacing + durabilityWidth, yOffset + boxSize, 0xFF00FF00); // Green for durability
             }
         }
     }
