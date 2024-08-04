@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "armor_hud",
+  "version": "${version}",
+  "name": "Armor Hud",
+  "description": "",
+  "authors": [],
+  "contact": {},
+  "license": "MIT",
+  "icon": "assets/armor_hud/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "client": [
+      "com.saolghra.armor_hud.client.Armor_hudClient"
+    ],
+    "main": [
+      "com.saolghra.armor_hud.Armor_hud"
+    ]
+  },
+  "mixins": [
+    "armor_hud.mixins.json",
+    {
+      "config": "armor_hud.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}
