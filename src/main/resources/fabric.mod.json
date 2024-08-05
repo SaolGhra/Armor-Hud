@@ -3,11 +3,13 @@
   "id": "armor_hud",
   "version": "${version}",
   "name": "Armor Hud",
-  "description": "",
-  "authors": [],
+  "description": "A new added HUD to minecraft the shows the armor on the left hand side of the offhand slot.",
+  "authors": [
+    "SaolGhra"
+  ],
   "contact": {},
   "license": "MIT",
-  "icon": "assets/armor_hud/icon.png",
+  "icon": "assets/armor_hud/logo/ArmorHUDLogo.png",
   "environment": "*",
   "entrypoints": {
     "client": [

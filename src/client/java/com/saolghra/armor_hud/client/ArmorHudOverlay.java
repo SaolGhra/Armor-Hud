@@ -87,35 +87,29 @@ public class ArmorHudOverlay {
         // Total width of the durability bar
         int barWidth = width - 8;
         int barX = x + 4;
-        int durabilityWidth = (int) ((durability / (float) maxDamage) * barWidth);
-
-        // height of the durability bar
         int barHeight = 2;
 
-        // Draw the full bar with color transitions
-        for (int i = 0; i < barWidth; i++) {
-            int segmentX = barX + i;
-            int segmentColor;
+        // Calculate the width of the remaining and the lost durability
+        int remainingWidth = (int) ((durability / (float) maxDamage) * barWidth);
+        int lostWidth = barWidth - remainingWidth;
 
-            float ratio = (i / (float) barWidth);
+        // Variable to have colours
+        int barColor;
+        float durabilityRatio = (durability / (float) maxDamage);
 
-            // Determine color based on remaining durability ratio
-            if (durabilityWidth > i) {
-                if (ratio > 0.75) {
-                    segmentColor = 0xFF00FF00; // Green
-                } else if (ratio > 0.25) {
-                    segmentColor = 0xFFFFFF00; // Yellow
-                } else {
-                    segmentColor = 0xFFFF0000; // Red
-                }
-            } else {
-                // Lost durability area
-                segmentColor = 0xFF000000; // Black
-            }
-
-            // Draw each segment of the durability bar
-            fill(context, segmentX, y, segmentX + 1, y + barHeight, segmentColor);
+        if (durabilityRatio > 0.75) {
+            barColor = 0xFF00FF00; // Green
+        } else if (durabilityRatio > 0.25) {
+            barColor = 0xFFFFFF00; // Yellow
+        } else {
+            barColor = 0xFFFF0000; // Red
         }
+
+        // Draw the remaining durability bar
+        fill(context, barX, y, barX + remainingWidth, y + barHeight, barColor);
+
+        // Draw the lost durability bar (black)
+        fill(context, barX + remainingWidth, y, barX + barWidth, y + barHeight, 0xFF000000);
     }
 
     private void fill(DrawContext context, int x1, int y1, int x2, int y2, int color) {
