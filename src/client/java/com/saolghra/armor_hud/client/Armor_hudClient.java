@@ -9,7 +9,7 @@ public class Armor_hudClient implements ClientModInitializer {
     public void onInitializeClient() {
         // Register the HUD renderer Callback
         HudRenderCallback.EVENT.register((context, tickDelta) -> {
-            new ArmorHudOverlay().renderArmorUI(context, tickDelta);
+            new ArmorHudOverlay().renderArmorUI(context);
         });
     }
 }

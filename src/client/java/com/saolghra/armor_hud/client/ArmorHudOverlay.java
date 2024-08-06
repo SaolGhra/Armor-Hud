@@ -2,17 +2,33 @@ package com.saolghra.armor_hud.client;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.render.RenderTickCounter;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.Identifier;
 
 public class ArmorHudOverlay {
     private static final Identifier HOTBAR_TEXTURE = Identifier.of("armor_hud", "textures/gui/hotbar_texture.png");
+    private static final Identifier EXCLAMATION_MARKS_TEXTURE = Identifier.of("armor_hud", "textures/gui/exclamation_marks.png");
+    private static final Identifier FLASHING_EXCLAMATION_TEXTURE = Identifier.of("armor_hud", "textures/gui/exclamation_marks_flash.png");
 
-    public void renderArmorUI(DrawContext context, RenderTickCounter tickDelta) {
+    private static final float FLASH_INTERVAL_TICKS = 20.0f;
+    private long lastFlashChangeTime = -1;
+    private boolean isFlashing = false;
+
+    public void renderArmorUI(DrawContext context) {
         MinecraftClient client = MinecraftClient.getInstance();
 
-        if (client.player == null) return;
+        if (client.player == null || client.world == null) return;
+
+        // get the current game time in ticks
+        long gameTime = client.world.getTime();
+
+        if (lastFlashChangeTime == -1 || (gameTime - lastFlashChangeTime) >= FLASH_INTERVAL_TICKS) {
+            lastFlashChangeTime = gameTime;
+            isFlashing = !isFlashing;
+        }
+
+        // calculate flashing state
+        // boolean isFlashing = (gameTime / FLASH_INTERVAL_TICKS) % 2 == 0;
 
         // Get armor items
         ItemStack[] armorItems = client.player.getInventory().armor.toArray(new ItemStack[0]);
@@ -54,8 +70,6 @@ public class ArmorHudOverlay {
                 context.getMatrices().translate(0, 0, 0);
                 context.drawItem(armorItem, xOffset + armorSpacing + (boxSize - 16) / 2, yOffset + (boxSize - 16) / 2);
                 context.getMatrices().pop();
-
-                // Draw the durability bar
             }
         }
 
@@ -71,8 +85,29 @@ public class ArmorHudOverlay {
                 context.getMatrices().translate(0, 0, 200);
                 drawDurabilityBar(context, xOffset + armorSpacing, yOffset + boxSize - 6, boxSize, armorItem);
                 context.getMatrices().pop();
+
+                if(isDurabilityLow(armorItem)) {
+                    drawPulsingExclamationMark(context, xOffset + armorSpacing + (boxSize - 16) / 2, yOffset - 20, isFlashing);
+                }
             }
         }
+    }
+
+    private boolean isDurabilityLow(ItemStack item) {
+        int maxDamage = item.getMaxDamage();
+        int damage = item.getDamage();
+        return (maxDamage - damage) / (float) maxDamage < 0.20;
+    }
+
+    private void drawPulsingExclamationMark(DrawContext context, int x, int y, boolean isFlashing) {
+        Identifier textureToUse = isFlashing ? EXCLAMATION_MARKS_TEXTURE : FLASHING_EXCLAMATION_TEXTURE;
+
+        // Draw the exclamation marks
+        context.getMatrices().push();
+        context.getMatrices().translate(x - 5, y + 16, 500);
+        context.getMatrices().scale(0.5f, 0.5f, 500f);
+        context.drawTexture(textureToUse, 0, 0, 0, 0, 22, 22, 22, 22);
+        context.getMatrices().pop();
     }
 
     private void drawTexture(DrawContext context, int x, int y, int u, int v, int width, int height, int textureWidth, int textureHeight) {
@@ -97,9 +132,9 @@ public class ArmorHudOverlay {
         int barColor;
         float durabilityRatio = (durability / (float) maxDamage);
 
-        if (durabilityRatio > 0.75) {
+        if (durabilityRatio > 0.65) {
             barColor = 0xFF00FF00; // Green
-        } else if (durabilityRatio > 0.25) {
+        } else if (durabilityRatio > 0.20) {
             barColor = 0xFFFFFF00; // Yellow
         } else {
             barColor = 0xFFFF0000; // Red
