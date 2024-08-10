@@ -10,25 +10,22 @@ public class ArmorHudOverlay {
     private static final Identifier EXCLAMATION_MARKS_TEXTURE = Identifier.of("armor_hud", "textures/gui/exclamation_marks.png");
     private static final Identifier FLASHING_EXCLAMATION_TEXTURE = Identifier.of("armor_hud", "textures/gui/exclamation_marks_flash.png");
 
-    private static final float FLASH_INTERVAL_TICKS = 20.0f;
-    private long lastFlashChangeTime = -1;
-    private boolean isFlashing = false;
+    private static final long FLASH_INTERVAL_MS = 2000;
+    private int tickCounter = 0;
+    private boolean useFirstTexture = true;
 
     public void renderArmorUI(DrawContext context) {
         MinecraftClient client = MinecraftClient.getInstance();
 
         if (client.player == null || client.world == null) return;
 
-        // get the current game time in ticks
-        long gameTime = client.world.getTime();
-
-        if (lastFlashChangeTime == -1 || (gameTime - lastFlashChangeTime) >= FLASH_INTERVAL_TICKS) {
-            lastFlashChangeTime = gameTime;
-            isFlashing = !isFlashing;
+        // Make the textures toggle
+        tickCounter++;
+        if (tickCounter >= FLASH_INTERVAL_MS) {
+            tickCounter = 0;
+            useFirstTexture = !useFirstTexture;
         }
 
-        // calculate flashing state
-        // boolean isFlashing = (gameTime / FLASH_INTERVAL_TICKS) % 2 == 0;
 
         // Get armor items
         ItemStack[] armorItems = client.player.getInventory().armor.toArray(new ItemStack[0]);
@@ -43,11 +40,10 @@ public class ArmorHudOverlay {
 
         // Calculate the position for the offhand slot
         int offhandSlotX = screenWidth / 2 - 124; // Was 2 - 120
-        int offhandSlotY = screenHeight - 22; // 22 (Copy boxSize)
 
         // Offset based on offhand slot position
         int xOffset = offhandSlotX - (armorItems.length * (boxSize + spacing) + spacing);
-        int yOffset = offhandSlotY;
+        int yOffset = screenHeight - 22;
 
         // Bind the hotbar texture
         context.getMatrices().push();
@@ -87,7 +83,7 @@ public class ArmorHudOverlay {
                 context.getMatrices().pop();
 
                 if(isDurabilityLow(armorItem)) {
-                    drawPulsingExclamationMark(context, xOffset + armorSpacing + (boxSize - 16) / 2, yOffset - 20, isFlashing);
+                    drawPulsingExclamationMark(context, xOffset + armorSpacing + (boxSize - 16) / 2, yOffset - 20);
                 }
             }
         }
@@ -99,8 +95,8 @@ public class ArmorHudOverlay {
         return (maxDamage - damage) / (float) maxDamage < 0.20;
     }
 
-    private void drawPulsingExclamationMark(DrawContext context, int x, int y, boolean isFlashing) {
-        Identifier textureToUse = isFlashing ? EXCLAMATION_MARKS_TEXTURE : FLASHING_EXCLAMATION_TEXTURE;
+    private void drawPulsingExclamationMark(DrawContext context, int x, int y) {
+        Identifier textureToUse = useFirstTexture ? EXCLAMATION_MARKS_TEXTURE : FLASHING_EXCLAMATION_TEXTURE;
 
         // Draw the exclamation marks
         context.getMatrices().push();
@@ -126,7 +122,7 @@ public class ArmorHudOverlay {
 
         // Calculate the width of the remaining and the lost durability
         int remainingWidth = (int) ((durability / (float) maxDamage) * barWidth);
-        int lostWidth = barWidth - remainingWidth;
+//        int lostWidth = barWidth - remainingWidth;
 
         // Variable to have colours
         int barColor;
