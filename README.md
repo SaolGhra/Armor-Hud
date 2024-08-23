@@ -21,15 +21,6 @@ The Armor HUD Mod adds a visual overlay to Minecraft that displays your armor's 
 2. Place the mod file into the `mods` folder of your Minecraft installation.
 3. Launch Minecraft to see the new armor HUD.
 
-## Compatibility
-
-- Minecraft version [specify version(s)].
-
-## Changelog
-
-- **Release 1.4**
-  - Initial release with visible armor HUD and color-coded durability bars.
-
 ## Contributing
 
 Contributions are welcome! If you have suggestions, bug reports, or would like to contribute code, please open an issue or submit a pull request.
