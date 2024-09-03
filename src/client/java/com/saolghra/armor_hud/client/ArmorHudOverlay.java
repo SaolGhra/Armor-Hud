@@ -12,7 +12,9 @@ public class ArmorHudOverlay {
     public void renderArmorUI(DrawContext context) {
         MinecraftClient client = MinecraftClient.getInstance();
 
-        if (client.player == null || client.world == null) return;
+        if (client.options.hudHidden || client.player == null || client.world == null) {
+            return;
+        }
 
         // Get armor items
         ItemStack[] armorItems = client.player.getInventory().armor.toArray(new ItemStack[0]);
@@ -76,16 +78,22 @@ public class ArmorHudOverlay {
         }
     }
 
+    // Check if the durability is low
     private boolean isDurabilityLow(ItemStack item) {
         int maxDamage = item.getMaxDamage();
         int damage = item.getDamage();
-        return (maxDamage - damage) / (float) maxDamage < 0.20;
+        return damage > 0 && (maxDamage - damage) / (float) maxDamage < 0.20;
     }
 
     private void drawExclamationMark(DrawContext context, int x, int y) {
+        long currentTime = System.currentTimeMillis();
+
+        // Calculate the bobbing offset using a sine wave function
+        float bobbingOffset = (float) Math.sin(currentTime / 200.0) * 2; // Adjust the divisor to control speed and amplitude
+
         // Draw the exclamation marks
         context.getMatrices().push();
-        context.getMatrices().translate(x - 5, y + 16, 500);
+        context.getMatrices().translate(x - 5, y + 16 + bobbingOffset, 500);
         context.getMatrices().scale(0.5f, 0.5f, 500f);
         context.drawTexture(EXCLAMATION_MARKS_TEXTURE, 0, 0, 0, 0, 22, 22, 22, 22);
         context.getMatrices().pop();
@@ -98,6 +106,11 @@ public class ArmorHudOverlay {
     private void drawDurabilityBar(DrawContext context, int x, int y, int width, ItemStack item) {
         int maxDamage = item.getMaxDamage();
         int damage = item.getDamage();
+
+        if (damage == 0) {
+            return;
+        }
+
         int durability = maxDamage - damage;
 
         // Total width of the durability bar
