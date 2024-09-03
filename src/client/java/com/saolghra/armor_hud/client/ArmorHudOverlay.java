@@ -7,25 +7,12 @@ import net.minecraft.util.Identifier;
 
 public class ArmorHudOverlay {
     private static final Identifier HOTBAR_TEXTURE = Identifier.of("armor_hud", "textures/gui/hotbar_texture.png");
-    private static final Identifier EXCLAMATION_MARKS_TEXTURE = Identifier.of("armor_hud", "textures/gui/exclamation_marks.png");
-    private static final Identifier FLASHING_EXCLAMATION_TEXTURE = Identifier.of("armor_hud", "textures/gui/exclamation_marks_flash.png");
-
-    private static final long FLASH_INTERVAL_MS = 2000;
-    private int tickCounter = 0;
-    private boolean useFirstTexture = true;
+    private static final Identifier EXCLAMATION_MARKS_TEXTURE = Identifier.of("armor_hud", "textures/gui/exclamation_marks_flash.png");
 
     public void renderArmorUI(DrawContext context) {
         MinecraftClient client = MinecraftClient.getInstance();
 
         if (client.player == null || client.world == null) return;
-
-        // Make the textures toggle
-        tickCounter++;
-        if (tickCounter >= FLASH_INTERVAL_MS) {
-            tickCounter = 0;
-            useFirstTexture = !useFirstTexture;
-        }
-
 
         // Get armor items
         ItemStack[] armorItems = client.player.getInventory().armor.toArray(new ItemStack[0]);
@@ -83,7 +70,7 @@ public class ArmorHudOverlay {
                 context.getMatrices().pop();
 
                 if(isDurabilityLow(armorItem)) {
-                    drawPulsingExclamationMark(context, xOffset + armorSpacing + (boxSize - 16) / 2, yOffset - 20);
+                    drawExclamationMark(context, xOffset + armorSpacing + (boxSize - 16) / 2, yOffset - 20);
                 }
             }
         }
@@ -95,14 +82,12 @@ public class ArmorHudOverlay {
         return (maxDamage - damage) / (float) maxDamage < 0.20;
     }
 
-    private void drawPulsingExclamationMark(DrawContext context, int x, int y) {
-        Identifier textureToUse = useFirstTexture ? EXCLAMATION_MARKS_TEXTURE : FLASHING_EXCLAMATION_TEXTURE;
-
+    private void drawExclamationMark(DrawContext context, int x, int y) {
         // Draw the exclamation marks
         context.getMatrices().push();
         context.getMatrices().translate(x - 5, y + 16, 500);
         context.getMatrices().scale(0.5f, 0.5f, 500f);
-        context.drawTexture(textureToUse, 0, 0, 0, 0, 22, 22, 22, 22);
+        context.drawTexture(EXCLAMATION_MARKS_TEXTURE, 0, 0, 0, 0, 22, 22, 22, 22);
         context.getMatrices().pop();
     }
 
