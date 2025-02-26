@@ -1,5 +1,6 @@
 package com.saolghra.armor_hud.client;
 
+import java.awt.Color;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.render.RenderLayer;
@@ -128,37 +129,53 @@ public class ArmorHudOverlay {
             return;
         }
 
-        int durability = maxDamage - damage;
-
         // Total width of the durability bar
-        int barWidth = width - 8;
-        int barX = x + 4;
+        int barWidth = 13;
+        int barX = x + (width - barWidth) / 2 + 1;
         int barHeight = 2;
 
-        // Calculate the width of the remaining and the lost durability
-        int remainingWidth = (int) ((durability / (float) maxDamage) * barWidth);
-//        int lostWidth = barWidth - remainingWidth;
+        float durabilityRatio = ((maxDamage - damage) / (float) maxDamage);
 
-        // Variable to have colours
-        int barColor;
-        float durabilityRatio = (durability / (float) maxDamage);
+        // Get remaining width using increments of barWidth / 13
+        int remainingWidth = (int) Math.round(durabilityRatio * 13);
 
-        if (durabilityRatio > 0.65) {
-            barColor = 0xFF00FF00; // Green
-        } else if (durabilityRatio > 0.20) {
-            barColor = 0xFFFFFF00; // Yellow
-        } else {
-            barColor = 0xFFFF0000; // Red
-        }
+        // Get durability bar color from HSV
+        int barColor = convertHSVtoARGB((durabilityRatio / 3f) * 360, 1, 1);
 
-        // Draw the remaining durability bar
-        fill(context, barX, y, barX + remainingWidth, y + barHeight, barColor);
+        // Draw whole black background
+        fill(context, barX, y, barX + barWidth, y + barHeight, 0xFF000000);
 
-        // Draw the lost durability bar (black)
-        fill(context, barX + remainingWidth, y, barX + barWidth, y + barHeight, 0xFF000000);
+        // Draw the remaining durability over the background
+        fill(context, barX, y, barX + remainingWidth, y + barHeight / 2, barColor);
     }
 
     private void fill(DrawContext context, int x1, int y1, int x2, int y2, int color) {
         context.fill(x1, y1, x2, y2, color);
+    }
+
+    private int convertHSVtoARGB(float h, float s, float v) {
+        h = (h % 360 + 360) % 360;
+    
+        float hh = h / 60.0f;
+        int i = (int) hh % 6;
+    
+        float f = hh - i;
+        float p = v * (1 - s);
+        float q = v * (1 - f * s);
+        float t = v * (1 - (1 - f) * s);
+    
+        int r = 0, g = 0, b = 0;
+    
+        switch (i) {
+            case 0: r = Math.round(v * 255); g = Math.round(t * 255); b = Math.round(p * 255); break;
+            case 1: r = Math.round(q * 255); g = Math.round(v * 255); b = Math.round(p * 255); break;
+            case 2: r = Math.round(p * 255); g = Math.round(v * 255); b = Math.round(t * 255); break;
+            case 3: r = Math.round(p * 255); g = Math.round(q * 255); b = Math.round(v * 255); break;
+            case 4: r = Math.round(t * 255); g = Math.round(p * 255); b = Math.round(v * 255); break;
+            case 5: r = Math.round(v * 255); g = Math.round(p * 255); b = Math.round(q * 255); break;
+        }
+    
+        // Return standard RGB hex value
+        return (255 << 24) | (r << 16) | (g << 8) | b;
     }
 }
