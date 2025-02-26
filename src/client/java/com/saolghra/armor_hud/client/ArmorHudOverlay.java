@@ -1,6 +1,7 @@
 package com.saolghra.armor_hud.client;
 
-import java.awt.Color;
+import com.saolghra.armor_hud.client.config.ArmorHudConfig;
+
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.render.RenderLayer;
@@ -8,13 +9,14 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.util.Identifier;
 
 public class ArmorHudOverlay {
+    private final ArmorHudConfig config = ArmorHudConfig.getInstance();
     private static final Identifier HOTBAR_TEXTURE = Identifier.of("armor_hud", "textures/gui/hotbar_texture.png");
     private static final Identifier EXCLAMATION_MARKS_TEXTURE = Identifier.of("armor_hud", "textures/gui/exclamation_marks_flash.png");
 
     public void renderArmorUI(DrawContext context) {
         MinecraftClient client = MinecraftClient.getInstance();
 
-        if (client.options.hudHidden || client.player == null || client.world == null) {
+        if (!config.isVisible() || client.options.hudHidden || client.player == null || client.world == null) {
             return;
         }
 
@@ -22,8 +24,8 @@ public class ArmorHudOverlay {
         ItemStack[] armorItems = client.player.getInventory().armor.toArray(new ItemStack[0]);
 
         // Position for the armor boxes
-        int boxSize = 22;
-        int spacing = 2; // Was 4
+//        int boxSize = 22;
+//        int spacing = 2; // Was 4
 
         // Get screen width and height
         int screenWidth = client.getWindow().getScaledWidth();
@@ -33,8 +35,14 @@ public class ArmorHudOverlay {
         int offhandSlotX = screenWidth / 2 - 124; // Was 2 - 120
 
         // Offset based on offhand slot position
-        int xOffset = offhandSlotX - (armorItems.length * (boxSize + spacing) + spacing);
-        int yOffset = screenHeight - 22;
+//        int xOffset = offhandSlotX - (armorItems.length * (boxSize + spacing) + spacing);
+//        int yOffset = screenHeight - 22;
+
+        // Use config values
+        int boxSize = config.getBoxSize();
+        int spacing = config.getSpacing();
+        int xOffset = screenWidth / 2 + config.getXOffset();
+        int yOffset = screenHeight + config.getYOffset();
 
         // Bind the hotbar texture
         context.getMatrices().push();
@@ -73,7 +81,10 @@ public class ArmorHudOverlay {
                 drawDurabilityBar(context, xOffset + armorSpacing, yOffset + boxSize - 6, boxSize, armorItem);
                 context.getMatrices().pop();
 
-                if(isDurabilityLow(armorItem)) {
+//                if(isDurabilityLow(armorItem)) {
+//                    drawExclamationMark(context, xOffset + armorSpacing + (boxSize - 16) / 2, yOffset - 20);
+//                }
+                if (isDurabilityLow(armorItem) && config.isShowExclamationMarks()) {
                     drawExclamationMark(context, xOffset + armorSpacing + (boxSize - 16) / 2, yOffset - 20);
                 }
             }
@@ -81,10 +92,16 @@ public class ArmorHudOverlay {
     }
 
     // Check if the durability is low
+//    private boolean isDurabilityLow(ItemStack item) {
+//        int maxDamage = item.getMaxDamage();
+//        int damage = item.getDamage();
+//        return damage > 0 && (maxDamage - damage) / (float) maxDamage < 0.20;
+//    }
+
     private boolean isDurabilityLow(ItemStack item) {
         int maxDamage = item.getMaxDamage();
         int damage = item.getDamage();
-        return damage > 0 && (maxDamage - damage) / (float) maxDamage < 0.20;
+        return damage > 0 && (maxDamage - damage) / (float) maxDamage < config.getDurabilityWarningThreshold();
     }
 
     private void drawExclamationMark(DrawContext context, int x, int y) {

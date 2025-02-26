@@ -17,6 +17,9 @@
     ],
     "main": [
       "com.saolghra.armor_hud.Armor_hud"
+    ],
+    "modmenu": [
+      "com.saolghra.armor_hud.client.config.ModMenuIntegration"
     ]
   },
   "mixins": [
