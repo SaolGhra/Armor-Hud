@@ -1,4 +1,5 @@
 package com.saolghra.armor_hud.client.config;
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import net.fabricmc.loader.api.FabricLoader;
@@ -8,73 +9,64 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 public class ArmorHudConfig {
-    private static final ArmorHudConfig INSTANCE = new ArmorHudConfig();
+    private static volatile ArmorHudConfig INSTANCE;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static Path configPath;
+    private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("armor_hud.json");
 
-    private int xOffset = -224;
-    private int yOffset = -22;
-    private boolean showExclamationMarks = true;
-    private float durabilityWarningThreshold = 0.20f;
-    private int boxSize = 22;
-    private int spacing = 2;
-    private boolean visible = true;
+    // Fields without default values
+    private int xOffset;
+    private int yOffset;
+    private boolean showExclamationMarks;
+    private float durabilityWarningThreshold;
+    private int boxSize;
+    private int spacing;
+    private boolean visible;
 
+    // Default constants
     private static final int DEFAULT_X_OFFSET = -224;
     private static final int DEFAULT_Y_OFFSET = -22;
     private static final int DEFAULT_BOX_SIZE = 22;
     private static final int DEFAULT_SPACING = 2;
 
-    private ArmorHudConfig() {
-        try {
-            configPath = FabricLoader.getInstance().getConfigDir().resolve("armor_hud.json");
-            loadConfig();
-        } catch (Exception e) {
-            System.err.println("Failed to initialize config path: " + e.getMessage());
-        }
-    }
+
+    public ArmorHudConfig() {}
 
     public static ArmorHudConfig getInstance() {
+        if (INSTANCE == null) {
+            synchronized (ArmorHudConfig.class) {
+                if (INSTANCE == null) {
+                    INSTANCE = loadOrCreate();
+                }
+            }
+        }
         return INSTANCE;
     }
 
-    public void saveConfig() {
-        try {
-            if (configPath != null) {
-                String json = GSON.toJson(this);
-                Files.writeString(configPath, json);
+    private static ArmorHudConfig loadOrCreate() {
+        if (Files.exists(CONFIG_PATH)) {
+            try {
+                String json = Files.readString(CONFIG_PATH);
+                return GSON.fromJson(json, ArmorHudConfig.class);
+            } catch (IOException e) {
+                System.err.println("Failed to load config: " + e.getMessage());
             }
-        } catch (IOException e) {
-            System.err.println("Failed to save config: " + e.getMessage());
         }
+        return createDefaultConfig();
+    }
+    private static ArmorHudConfig createDefaultConfig() {
+        ArmorHudConfig config = new ArmorHudConfig();
+        config.xOffset = DEFAULT_X_OFFSET;
+        config.yOffset = DEFAULT_Y_OFFSET;
+        config.boxSize = DEFAULT_BOX_SIZE;
+        config.spacing = DEFAULT_SPACING;
+        config.showExclamationMarks = true;
+        config.durabilityWarningThreshold = 0.20f;
+        config.visible = true;
+        config.saveConfig();
+        return config;
     }
 
-    private void loadConfig() {
-        try {
-            if (configPath != null && Files.exists(configPath)) {
-                String json = Files.readString(configPath);
-                ArmorHudConfig loaded = GSON.fromJson(json, ArmorHudConfig.class);
-                if (loaded != null) {
-                    copyFrom(loaded);
-                }
-            }
-        } catch (IOException e) {
-            System.err.println("Failed to load config: " + e.getMessage());
-            resetToDefaults();
-        }
-    }
-
-    private void copyFrom(ArmorHudConfig other) {
-        this.xOffset = other.xOffset;
-        this.yOffset = other.yOffset;
-        this.showExclamationMarks = other.showExclamationMarks;
-        this.durabilityWarningThreshold = other.durabilityWarningThreshold;
-        this.boxSize = other.boxSize;
-        this.spacing = other.spacing;
-        this.visible = other.visible;
-    }
-
-    public void resetToDefaults() {
+    private void initDefaults() {
         xOffset = DEFAULT_X_OFFSET;
         yOffset = DEFAULT_Y_OFFSET;
         boxSize = DEFAULT_BOX_SIZE;
@@ -82,6 +74,51 @@ public class ArmorHudConfig {
         showExclamationMarks = true;
         durabilityWarningThreshold = 0.20f;
         visible = true;
+    }
+
+    private void loadConfig() {
+        try {
+            if (Files.exists(CONFIG_PATH)) {
+                String json = Files.readString(CONFIG_PATH);
+                ArmorHudConfig loaded = GSON.fromJson(json, ArmorHudConfig.class);
+                if (loaded != null) {
+                    copyFrom(loaded);
+                }
+            } else {
+                saveConfig();
+            }
+        } catch (IOException e) {
+            System.err.println("Failed to load config: " + e.getMessage());
+        }
+    }
+
+    public void saveConfig() {
+        try {
+            if (!Files.exists(CONFIG_PATH.getParent())) {
+                Files.createDirectories(CONFIG_PATH.getParent());
+            }
+            String json = GSON.toJson(this);
+            Files.writeString(CONFIG_PATH, json);
+        } catch (IOException e) {
+            System.err.println("Failed to save config: " + e.getMessage());
+        }
+    }
+
+    private void copyFrom(ArmorHudConfig other) {
+        if (other != null) {
+            this.xOffset = other.xOffset;
+            this.yOffset = other.yOffset;
+            this.showExclamationMarks = other.showExclamationMarks;
+            this.durabilityWarningThreshold = other.durabilityWarningThreshold;
+            this.boxSize = other.boxSize;
+            this.spacing = other.spacing;
+            this.visible = other.visible;
+        }
+    }
+
+    public void resetToDefaults() {
+        ArmorHudConfig defaults = createDefaultConfig();
+        copyFrom(defaults);
         saveConfig();
     }
 
