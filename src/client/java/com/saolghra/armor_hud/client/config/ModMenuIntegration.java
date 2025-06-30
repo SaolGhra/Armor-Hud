@@ -259,6 +259,10 @@ class SimpleConfigScreen extends Screen {
     private void renderPreviewHud(DrawContext context) {
         if (!isInteractiveMode) return;
 
+        // Push matrices and translate to a higher z-level to render above blur
+        context.getMatrices().push();
+        context.getMatrices().translate(0, 0, 1000); // High z-value to render on top
+
         int boxSize = config.getBoxSize();
         int spacing = config.getSpacing();
         int xOffset = getHudX();
@@ -314,7 +318,12 @@ class SimpleConfigScreen extends Screen {
             }
         }
 
-        // Draw drag hint
+        context.getMatrices().pop(); // Restore matrix state
+
+        // Draw drag hint (also at higher z-level)
+        context.getMatrices().push();
+        context.getMatrices().translate(0, 0, 1000);
+
         if (isDragging) {
             context.drawCenteredTextWithShadow(this.textRenderer,
                     Text.literal("Dragging..."),
@@ -324,12 +333,15 @@ class SimpleConfigScreen extends Screen {
                     Text.literal("Click and drag the armor HUD to position it"),
                     this.width / 2, 20, 0xFFFFFF);
         }
+
+        context.getMatrices().pop();
     }
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        // Semi-transparent background for better visibility
-        context.fill(0, 0, this.width, this.height, 0x40000000);
+        // Use lighter blur in interactive mode, normal blur otherwise
+        int blurAlpha = isInteractiveMode ? 0x20000000 : 0x40000000;
+        context.fill(0, 0, this.width, this.height, blurAlpha);
 
         context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 15, 0xFFFFFF);
 
@@ -339,9 +351,9 @@ class SimpleConfigScreen extends Screen {
             context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("Y Offset"), this.width / 2, yOffsetLabelY, 0xFFFFFF);
         }
 
-        // Render the preview HUD in interactive mode
-        renderPreviewHud(context);
-
         super.render(context, mouseX, mouseY, delta);
+
+        // Render the preview HUD LAST to ensure it's on top
+        renderPreviewHud(context);
     }
 }
