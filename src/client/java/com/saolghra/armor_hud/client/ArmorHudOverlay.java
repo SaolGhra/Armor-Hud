@@ -4,7 +4,6 @@ import com.saolghra.armor_hud.client.config.ArmorHudConfig;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.render.RenderLayer;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.Identifier;
 
@@ -64,7 +63,7 @@ public class ArmorHudOverlay {
                 // Draw exclamation mark if needed
                 if (isDurabilityLow(armorItem) && config.isShowExclamationMarks()) {
                     // Exclamation mark appears at the top right of the box
-                    drawExclamationMark(context, xOffset + armorSpacing, yOffset, boxSize);
+                    drawExclamationMark(context, xOffset + armorSpacing + (boxSize - 16) / 2, yOffset - 20);
                 }
             }
         }
@@ -76,36 +75,23 @@ public class ArmorHudOverlay {
         return damage > 0 && (maxDamage - damage) / (float) maxDamage < config.getDurabilityWarningThreshold();
     }
 
-    private void drawExclamationMark(DrawContext context, int boxX, int boxY, int boxSize) {
+    private void drawExclamationMark(DrawContext context, int x, int y) {
         long currentTime = System.currentTimeMillis();
+
+        // Calculate the bobbing offset using a sine wave function
         float bobbingOffset = (float) Math.sin(currentTime / 200.0) * 2;
 
-        int iconSize = 11;
-        int offsetX = -1; // Moved from 0 to -1 to shift it slightly left
-        int offsetY = -2;
+        // Draw the exclamation marks
+        context.getMatrices().push();
+        context.getMatrices().translate(x - 5, y + 16 + bobbingOffset, 500);
+        context.getMatrices().scale(0.5f, 0.5f, 500f);
+        context.drawTexture(EXCLAMATION_MARKS_TEXTURE, 0, 0, 0, 0, 22, 22, 22, 22);
 
-        int drawX = boxX + offsetX;
-        int drawY = boxY + offsetY + (int) bobbingOffset;
-
-        context.drawTexture(
-                RenderLayer::getGuiTexturedOverlay,
-                EXCLAMATION_MARKS_TEXTURE,
-                drawX, drawY,
-                0, 0,
-                iconSize, iconSize,
-                iconSize, iconSize
-        );
+        context.getMatrices().pop();
     }
 
     private void drawTexture(DrawContext context, int x, int y, int width, int height) {
-        context.drawTexture(
-                RenderLayer::getGuiTexturedOverlay,
-                HOTBAR_TEXTURE,
-                x, y,
-                0, 0,
-                width, height,
-                width, height
-        );
+        context.drawTexture(HOTBAR_TEXTURE, x, y, 0, 0, width, height, 22, 22);
     }
 
     private void drawDurabilityBar(DrawContext context, int x, int y, int width, ItemStack item) {
@@ -124,7 +110,7 @@ public class ArmorHudOverlay {
         float durabilityRatio = ((maxDamage - damage) / (float) maxDamage);
 
         // Get remaining width using increments of barWidth / 13
-        int remainingWidth = (int) Math.round(durabilityRatio * 13);
+        int remainingWidth = Math.round(durabilityRatio * 13);
 
         // Get durability bar color from HSV
         int barColor = convertHSVtoARGB((durabilityRatio / 3f) * 360, 1, 1);
