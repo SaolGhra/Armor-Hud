@@ -81,10 +81,10 @@ public class ArmorHudOverlay {
         float bobbingOffset = (float) Math.sin(currentTime / 200.0) * 2;
 
         int iconSize = 11;
-        int offsetX = 0; // No offset from left edge (or try 1-2 for a tiny gap)
-        int offsetY = -2; // Slightly above the box
+        int offsetX = -1; // Moved from 0 to -1 to shift it slightly left
+        int offsetY = -2;
 
-        int drawX = boxX + offsetX; // Now positioned from the LEFT edge
+        int drawX = boxX + offsetX;
         int drawY = boxY + offsetY + (int) bobbingOffset;
 
         context.drawTexture(

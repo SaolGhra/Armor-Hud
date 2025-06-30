@@ -7,6 +7,9 @@ import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
 
 public class ModMenuIntegration implements ModMenuApi {
     @Override
@@ -21,10 +24,33 @@ class SimpleConfigScreen extends Screen {
     private TextFieldWidget xOffsetField;
     private TextFieldWidget yOffsetField;
 
+    // Interactive positioning variables
+    private boolean isDragging = false;
+    private boolean isInteractiveMode = false;
+    private int dragStartX = 0;
+    private int dragStartY = 0;
+    private int initialConfigX = 0;
+    private int initialConfigY = 0;
+
+    // Preview armor items for the interactive mode
+    private final ItemStack[] previewArmor = {
+            new ItemStack(Items.DIAMOND_HELMET),
+            new ItemStack(Items.DIAMOND_CHESTPLATE),
+            new ItemStack(Items.DIAMOND_LEGGINGS),
+            new ItemStack(Items.DIAMOND_BOOTS)
+    };
+
     protected SimpleConfigScreen(Screen parent) {
         super(Text.literal("Armor HUD Configuration"));
         this.parent = parent;
         this.config = ArmorHudConfig.getInstance();
+
+        // Make preview armor damaged for better visualization
+        for (ItemStack armor : previewArmor) {
+            if (armor.getMaxDamage() > 0) {
+                armor.setDamage((int)(armor.getMaxDamage() * 0.7)); // 30% durability left
+            }
+        }
     }
 
     @Override
@@ -33,9 +59,7 @@ class SimpleConfigScreen extends Screen {
         int buttonHeight = 20;
         int centerX = this.width / 2 - buttonWidth / 2;
         int textFieldWidth = 60;
-        int currentY = 45;  // Start lower to accommodate title
-
-        // Title is rendered separately in render method at Y=15
+        int currentY = 45;
 
         // Visibility toggle
         this.addDrawableChild(ButtonWidget.builder(
@@ -46,73 +70,84 @@ class SimpleConfigScreen extends Screen {
                         })
                 .dimensions(centerX, currentY, buttonWidth, buttonHeight)
                 .build());
-        currentY += 35;  // Larger gap after title section
+        currentY += 30;
 
-        // X Offset label rendered in render method
-        currentY += 15;  // Space for label
-
-        // X Offset text field and buttons
-        xOffsetField = new TextFieldWidget(this.textRenderer, centerX, currentY, textFieldWidth, buttonHeight, Text.literal(""));
-        xOffsetField.setText(String.valueOf(config.getXOffset()));
-        xOffsetField.setChangedListener(text -> {
-            try {
-                int value = Integer.parseInt(text);
-                config.setXOffset(value);
-            } catch (NumberFormatException ignored) {}
-        });
-        this.addDrawableChild(xOffsetField);
-
+        // Interactive positioning mode toggle
         this.addDrawableChild(ButtonWidget.builder(
-                        Text.literal("-10"),
+                        Text.literal(isInteractiveMode ? "Exit Interactive Mode" : "Interactive Positioning"),
                         button -> {
-                            config.setXOffset(config.getXOffset() - 10);
-                            xOffsetField.setText(String.valueOf(config.getXOffset()));
+                            isInteractiveMode = !isInteractiveMode;
+                            isDragging = false;
+                            button.setMessage(Text.literal(isInteractiveMode ? "Exit Interactive Mode" : "Interactive Positioning"));
                         })
-                .dimensions(centerX - 70, currentY, 50, buttonHeight)
+                .dimensions(centerX, currentY, buttonWidth, buttonHeight)
                 .build());
+        currentY += 35;
 
-        this.addDrawableChild(ButtonWidget.builder(
-                        Text.literal("+10"),
-                        button -> {
-                            config.setXOffset(config.getXOffset() + 10);
-                            xOffsetField.setText(String.valueOf(config.getXOffset()));
-                        })
-                .dimensions(centerX + textFieldWidth + 20, currentY, 50, buttonHeight)
-                .build());
-        currentY += 35;  // Larger gap between sections
+        // Only show text fields and buttons when not in interactive mode
+        if (!isInteractiveMode) {
+            // X Offset section
+            currentY += 15;
+            xOffsetField = new TextFieldWidget(this.textRenderer, centerX, currentY, textFieldWidth, buttonHeight, Text.literal(""));
+            xOffsetField.setText(String.valueOf(config.getXOffset()));
+            xOffsetField.setChangedListener(text -> {
+                try {
+                    int value = Integer.parseInt(text);
+                    config.setXOffset(value);
+                } catch (NumberFormatException ignored) {}
+            });
+            this.addDrawableChild(xOffsetField);
 
-        // Y Offset label rendered in render method
-        currentY += 15;  // Space for label
+            this.addDrawableChild(ButtonWidget.builder(
+                            Text.literal("-10"),
+                            button -> {
+                                config.setXOffset(config.getXOffset() - 10);
+                                xOffsetField.setText(String.valueOf(config.getXOffset()));
+                            })
+                    .dimensions(centerX - 70, currentY, 50, buttonHeight)
+                    .build());
 
-        // Y Offset text field and buttons
-        yOffsetField = new TextFieldWidget(this.textRenderer, centerX, currentY, textFieldWidth, buttonHeight, Text.literal(""));
-        yOffsetField.setText(String.valueOf(config.getYOffset()));
-        yOffsetField.setChangedListener(text -> {
-            try {
-                int value = Integer.parseInt(text);
-                config.setYOffset(value);
-            } catch (NumberFormatException ignored) {}
-        });
-        this.addDrawableChild(yOffsetField);
+            this.addDrawableChild(ButtonWidget.builder(
+                            Text.literal("+10"),
+                            button -> {
+                                config.setXOffset(config.getXOffset() + 10);
+                                xOffsetField.setText(String.valueOf(config.getXOffset()));
+                            })
+                    .dimensions(centerX + textFieldWidth + 20, currentY, 50, buttonHeight)
+                    .build());
+            currentY += 35;
 
-        this.addDrawableChild(ButtonWidget.builder(
-                        Text.literal("-10"),
-                        button -> {
-                            config.setYOffset(config.getYOffset() - 10);
-                            yOffsetField.setText(String.valueOf(config.getYOffset()));
-                        })
-                .dimensions(centerX - 70, currentY, 50, buttonHeight)
-                .build());
+            // Y Offset section
+            currentY += 15;
+            yOffsetField = new TextFieldWidget(this.textRenderer, centerX, currentY, textFieldWidth, buttonHeight, Text.literal(""));
+            yOffsetField.setText(String.valueOf(config.getYOffset()));
+            yOffsetField.setChangedListener(text -> {
+                try {
+                    int value = Integer.parseInt(text);
+                    config.setYOffset(value);
+                } catch (NumberFormatException ignored) {}
+            });
+            this.addDrawableChild(yOffsetField);
 
-        this.addDrawableChild(ButtonWidget.builder(
-                        Text.literal("+10"),
-                        button -> {
-                            config.setYOffset(config.getYOffset() + 10);
-                            yOffsetField.setText(String.valueOf(config.getYOffset()));
-                        })
-                .dimensions(centerX + textFieldWidth + 20, currentY, 50, buttonHeight)
-                .build());
-        currentY += 35;  // Larger gap between sections
+            this.addDrawableChild(ButtonWidget.builder(
+                            Text.literal("-10"),
+                            button -> {
+                                config.setYOffset(config.getYOffset() - 10);
+                                yOffsetField.setText(String.valueOf(config.getYOffset()));
+                            })
+                    .dimensions(centerX - 70, currentY, 50, buttonHeight)
+                    .build());
+
+            this.addDrawableChild(ButtonWidget.builder(
+                            Text.literal("+10"),
+                            button -> {
+                                config.setYOffset(config.getYOffset() + 10);
+                                yOffsetField.setText(String.valueOf(config.getYOffset()));
+                            })
+                    .dimensions(centerX + textFieldWidth + 20, currentY, 50, buttonHeight)
+                    .build());
+            currentY += 35;
+        }
 
         // Toggle exclamation marks
         this.addDrawableChild(ButtonWidget.builder(
@@ -123,15 +158,15 @@ class SimpleConfigScreen extends Screen {
                         })
                 .dimensions(centerX, currentY, buttonWidth, buttonHeight)
                 .build());
-        currentY += 35;
+        currentY += 30;
 
         // Reset button
         this.addDrawableChild(ButtonWidget.builder(
                         Text.literal("Reset to Defaults"),
                         button -> {
                             config.resetToDefaults();
-                            xOffsetField.setText(String.valueOf(config.getXOffset()));
-                            yOffsetField.setText(String.valueOf(config.getYOffset()));
+                            if (xOffsetField != null) xOffsetField.setText(String.valueOf(config.getXOffset()));
+                            if (yOffsetField != null) yOffsetField.setText(String.valueOf(config.getYOffset()));
                         })
                 .dimensions(centerX, currentY, buttonWidth, buttonHeight)
                 .build());
@@ -148,11 +183,147 @@ class SimpleConfigScreen extends Screen {
     }
 
     @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (isInteractiveMode && button == 0) { // Left click
+            // Check if click is within the armor HUD area
+            int hudX = getHudX();
+            int hudY = getHudY();
+            int totalWidth = getTotalHudWidth();
+            int hudHeight = config.getBoxSize();
+
+            if (mouseX >= hudX && mouseX <= hudX + totalWidth &&
+                    mouseY >= hudY && mouseY <= hudY + hudHeight) {
+                isDragging = true;
+                dragStartX = (int) mouseX;
+                dragStartY = (int) mouseY;
+                initialConfigX = config.getXOffset();
+                initialConfigY = config.getYOffset();
+                return true;
+            }
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (isDragging && button == 0) {
+            isDragging = false;
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (isDragging && isInteractiveMode) {
+            int deltaXInt = (int) mouseX - dragStartX;
+            int deltaYInt = (int) mouseY - dragStartY;
+
+            config.setXOffset(initialConfigX + deltaXInt);
+            config.setYOffset(initialConfigY + deltaYInt);
+
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+    }
+
+    private int getHudX() {
+        return this.width / 2 + config.getXOffset();
+    }
+
+    private int getHudY() {
+        return this.height + config.getYOffset();
+    }
+
+    private int getTotalHudWidth() {
+        return 4 * config.getBoxSize() + 3 * config.getSpacing();
+    }
+
+    private void renderPreviewHud(DrawContext context) {
+        if (!isInteractiveMode) return;
+
+        int boxSize = config.getBoxSize();
+        int spacing = config.getSpacing();
+        int xOffset = getHudX();
+        int yOffset = getHudY();
+
+        // Draw armor boxes and icons
+        for (int i = previewArmor.length - 1; i >= 0; i--) {
+            ItemStack armorItem = previewArmor[i];
+            int armorSpacing = (previewArmor.length - 1 - i) * (boxSize + spacing);
+
+            // Draw box background - you'll need to implement this or use a simple fill
+            context.fill(xOffset + armorSpacing, yOffset,
+                    xOffset + armorSpacing + boxSize, yOffset + boxSize,
+                    0x80000000); // Semi-transparent black background
+
+            // Draw armor icon
+            context.drawItem(armorItem,
+                    xOffset + armorSpacing + (boxSize - 16) / 2,
+                    yOffset + (boxSize - 16) / 2);
+
+            // Draw durability bar (simplified version)
+            if (armorItem.getMaxDamage() > 0) {
+                int damage = armorItem.getDamage();
+                int maxDamage = armorItem.getMaxDamage();
+                float durabilityRatio = ((maxDamage - damage) / (float) maxDamage);
+
+                int barWidth = 13;
+                int barX = xOffset + armorSpacing + (boxSize - barWidth) / 2 + 1;
+                int barY = yOffset + boxSize - 6;
+                int barHeight = 2;
+                int remainingWidth = (int) Math.round(durabilityRatio * 13);
+
+                // Simple red to green color based on durability
+                int barColor = durabilityRatio > 0.5f ? 0xFF00FF00 : 0xFFFF0000;
+
+                context.fill(barX, barY, barX + barWidth, barY + barHeight, 0xFF000000);
+                context.fill(barX, barY, barX + remainingWidth, barY + barHeight, barColor);
+            }
+
+            // Draw exclamation mark if enabled and durability is low
+            if (config.isShowExclamationMarks() && armorItem.getMaxDamage() > 0) {
+                int damage = armorItem.getDamage();
+                int maxDamage = armorItem.getMaxDamage();
+                float durabilityRatio = ((maxDamage - damage) / (float) maxDamage);
+
+                if (durabilityRatio < config.getDurabilityWarningThreshold()) {
+                    // Simple exclamation mark using text
+                    context.drawTextWithShadow(this.textRenderer, "!",
+                            xOffset + armorSpacing - 1,
+                            yOffset - 2,
+                            0xFFFFFF00);
+                }
+            }
+        }
+
+        // Draw drag hint
+        if (isDragging) {
+            context.drawCenteredTextWithShadow(this.textRenderer,
+                    Text.literal("Dragging..."),
+                    this.width / 2, 20, 0xFFFFFF);
+        } else {
+            context.drawCenteredTextWithShadow(this.textRenderer,
+                    Text.literal("Click and drag the armor HUD to position it"),
+                    this.width / 2, 20, 0xFFFFFF);
+        }
+    }
+
+    @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        // No background rendering for transparency
+        // Semi-transparent background for better visibility
+        context.fill(0, 0, this.width, this.height, 0x40000000);
+
         context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 15, 0xFFFFFF);
-        context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("X Offset"), this.width / 2, 80, 0xFFFFFF);
-        context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("Y Offset"), this.width / 2, 130, 0xFFFFFF);
+
+        if (!isInteractiveMode) {
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("X Offset"), this.width / 2, 80, 0xFFFFFF);
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("Y Offset"), this.width / 2, 130, 0xFFFFFF);
+        }
+
+        // Render the preview HUD in interactive mode
+        renderPreviewHud(context);
+
         super.render(context, mouseX, mouseY, delta);
     }
 }
