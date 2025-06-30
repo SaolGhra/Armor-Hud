@@ -37,7 +37,10 @@ public class ArmorHudOverlay {
         int xOffset = screenWidth / 2 + config.getXOffset();
         int yOffset = screenHeight + config.getYOffset();
 
-        // Draw armor boxes and icons
+        // Push matrix to ensure durability bars render above armor icons
+        context.getMatrices().push();
+
+        // Draw armor boxes and icons first
         for (int i = armorItems.length - 1; i >= 0; i--) {
             ItemStack armorItem = armorItems[i];
 
@@ -52,7 +55,10 @@ public class ArmorHudOverlay {
             }
         }
 
-        // Draw durability bar and exclamation mark
+        // Translate to a higher z-level for durability bars and exclamation marks
+        context.getMatrices().translate(0, 0, 200);
+
+        // Draw durability bar and exclamation mark on top
         for (int i = armorItems.length - 1; i >= 0; i--) {
             ItemStack armorItem = armorItems[i];
 
@@ -69,6 +75,8 @@ public class ArmorHudOverlay {
                 }
             }
         }
+
+        context.getMatrices().pop();
     }
 
     private boolean isDurabilityLow(ItemStack item) {

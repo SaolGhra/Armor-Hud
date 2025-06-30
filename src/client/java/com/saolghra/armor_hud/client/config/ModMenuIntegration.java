@@ -5,7 +5,6 @@ import com.terraformersmc.modmenu.api.ModMenuApi;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.item.ItemStack;
@@ -21,8 +20,6 @@ public class ModMenuIntegration implements ModMenuApi {
 class SimpleConfigScreen extends Screen {
     private final Screen parent;
     private final ArmorHudConfig config;
-    private TextFieldWidget xOffsetField;
-    private TextFieldWidget yOffsetField;
 
     // Interactive positioning variables
     private boolean isDragging = false;
@@ -31,10 +28,6 @@ class SimpleConfigScreen extends Screen {
     private int dragStartY = 0;
     private int initialConfigX = 0;
     private int initialConfigY = 0;
-
-    // Label positions
-    private int xOffsetLabelY = 0;
-    private int yOffsetLabelY = 0;
 
     // Preview armor items for the interactive mode
     private final ItemStack[] previewArmor = {
@@ -62,7 +55,6 @@ class SimpleConfigScreen extends Screen {
         int buttonWidth = 200;
         int buttonHeight = 20;
         int centerX = this.width / 2 - buttonWidth / 2;
-        int textFieldWidth = 60;
         int currentY = 45;
 
         // Visibility toggle
@@ -88,84 +80,6 @@ class SimpleConfigScreen extends Screen {
                 .build());
         currentY += 35;
 
-        // Store Y positions for labels
-        int xOffsetLabelY = 0;
-        int yOffsetLabelY = 0;
-
-        // Only show text fields and buttons when not in interactive mode
-        if (!isInteractiveMode) {
-            // X Offset section
-            xOffsetLabelY = currentY; // Store the Y position for the label
-            currentY += 15; // Space for the label
-
-            xOffsetField = new TextFieldWidget(this.textRenderer, centerX, currentY, textFieldWidth, buttonHeight, Text.literal(""));
-            xOffsetField.setText(String.valueOf(config.getXOffset()));
-            xOffsetField.setChangedListener(text -> {
-                try {
-                    int value = Integer.parseInt(text);
-                    config.setXOffset(value);
-                } catch (NumberFormatException ignored) {}
-            });
-            this.addDrawableChild(xOffsetField);
-
-            this.addDrawableChild(ButtonWidget.builder(
-                            Text.literal("-10"),
-                            button -> {
-                                config.setXOffset(config.getXOffset() - 10);
-                                xOffsetField.setText(String.valueOf(config.getXOffset()));
-                            })
-                    .dimensions(centerX - 70, currentY, 50, buttonHeight)
-                    .build());
-
-            this.addDrawableChild(ButtonWidget.builder(
-                            Text.literal("+10"),
-                            button -> {
-                                config.setXOffset(config.getXOffset() + 10);
-                                xOffsetField.setText(String.valueOf(config.getXOffset()));
-                            })
-                    .dimensions(centerX + textFieldWidth + 20, currentY, 50, buttonHeight)
-                    .build());
-            currentY += 35;
-
-            // Y Offset section
-            yOffsetLabelY = currentY; // Store the Y position for the label
-            currentY += 15; // Space for the label
-
-            yOffsetField = new TextFieldWidget(this.textRenderer, centerX, currentY, textFieldWidth, buttonHeight, Text.literal(""));
-            yOffsetField.setText(String.valueOf(config.getYOffset()));
-            yOffsetField.setChangedListener(text -> {
-                try {
-                    int value = Integer.parseInt(text);
-                    config.setYOffset(value);
-                } catch (NumberFormatException ignored) {}
-            });
-            this.addDrawableChild(yOffsetField);
-
-            this.addDrawableChild(ButtonWidget.builder(
-                            Text.literal("-10"),
-                            button -> {
-                                config.setYOffset(config.getYOffset() - 10);
-                                yOffsetField.setText(String.valueOf(config.getYOffset()));
-                            })
-                    .dimensions(centerX - 70, currentY, 50, buttonHeight)
-                    .build());
-
-            this.addDrawableChild(ButtonWidget.builder(
-                            Text.literal("+10"),
-                            button -> {
-                                config.setYOffset(config.getYOffset() + 10);
-                                yOffsetField.setText(String.valueOf(config.getYOffset()));
-                            })
-                    .dimensions(centerX + textFieldWidth + 20, currentY, 50, buttonHeight)
-                    .build());
-            currentY += 35;
-        }
-
-        // Store the label positions as instance variables so render() can use them
-        this.xOffsetLabelY = xOffsetLabelY;
-        this.yOffsetLabelY = yOffsetLabelY;
-
-        // Rest of the buttons...
         // Toggle exclamation marks
         this.addDrawableChild(ButtonWidget.builder(
                         Text.literal("Show Exclamation Marks: " + config.isShowExclamationMarks()),
@@ -180,11 +94,7 @@ class SimpleConfigScreen extends Screen {
         // Reset button
         this.addDrawableChild(ButtonWidget.builder(
                         Text.literal("Reset to Defaults"),
-                        button -> {
-                            config.resetToDefaults();
-                            if (xOffsetField != null) xOffsetField.setText(String.valueOf(config.getXOffset()));
-                            if (yOffsetField != null) yOffsetField.setText(String.valueOf(config.getYOffset()));
-                        })
+                        button -> config.resetToDefaults())
                 .dimensions(centerX, currentY, buttonWidth, buttonHeight)
                 .build());
 
@@ -268,20 +178,29 @@ class SimpleConfigScreen extends Screen {
         int xOffset = getHudX();
         int yOffset = getHudY();
 
-        // Draw armor boxes and icons
+        // Draw armor boxes and icons first
         for (int i = previewArmor.length - 1; i >= 0; i--) {
             ItemStack armorItem = previewArmor[i];
             int armorSpacing = (previewArmor.length - 1 - i) * (boxSize + spacing);
 
-            // Draw box background - you'll need to implement this or use a simple fill
+            // Draw box background - semi-transparent black background
             context.fill(xOffset + armorSpacing, yOffset,
                     xOffset + armorSpacing + boxSize, yOffset + boxSize,
-                    0x80000000); // Semi-transparent black background
+                    0x80000000);
 
             // Draw armor icon
             context.drawItem(armorItem,
                     xOffset + armorSpacing + (boxSize - 16) / 2,
                     yOffset + (boxSize - 16) / 2);
+        }
+
+        // Translate to even higher z-level for durability bars and exclamation marks
+        context.getMatrices().translate(0, 0, 200);
+
+        // Draw durability bars and exclamation marks on top
+        for (int i = previewArmor.length - 1; i >= 0; i--) {
+            ItemStack armorItem = previewArmor[i];
+            int armorSpacing = (previewArmor.length - 1 - i) * (boxSize + spacing);
 
             // Draw durability bar (simplified version)
             if (armorItem.getMaxDamage() > 0) {
@@ -344,12 +263,6 @@ class SimpleConfigScreen extends Screen {
         context.fill(0, 0, this.width, this.height, blurAlpha);
 
         context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 15, 0xFFFFFF);
-
-        // Only show X/Y offset labels when NOT in interactive mode and the fields exist
-        if (!isInteractiveMode && xOffsetField != null && yOffsetField != null) {
-            context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("X Offset"), this.width / 2, xOffsetLabelY, 0xFFFFFF);
-            context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("Y Offset"), this.width / 2, yOffsetLabelY, 0xFFFFFF);
-        }
 
         super.render(context, mouseX, mouseY, delta);
 
