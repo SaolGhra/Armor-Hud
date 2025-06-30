@@ -32,6 +32,10 @@ class SimpleConfigScreen extends Screen {
     private int initialConfigX = 0;
     private int initialConfigY = 0;
 
+    // Label positions
+    private int xOffsetLabelY = 0;
+    private int yOffsetLabelY = 0;
+
     // Preview armor items for the interactive mode
     private final ItemStack[] previewArmor = {
             new ItemStack(Items.DIAMOND_HELMET),
@@ -84,10 +88,16 @@ class SimpleConfigScreen extends Screen {
                 .build());
         currentY += 35;
 
+        // Store Y positions for labels
+        int xOffsetLabelY = 0;
+        int yOffsetLabelY = 0;
+
         // Only show text fields and buttons when not in interactive mode
         if (!isInteractiveMode) {
             // X Offset section
-            currentY += 15;
+            xOffsetLabelY = currentY; // Store the Y position for the label
+            currentY += 15; // Space for the label
+
             xOffsetField = new TextFieldWidget(this.textRenderer, centerX, currentY, textFieldWidth, buttonHeight, Text.literal(""));
             xOffsetField.setText(String.valueOf(config.getXOffset()));
             xOffsetField.setChangedListener(text -> {
@@ -118,7 +128,9 @@ class SimpleConfigScreen extends Screen {
             currentY += 35;
 
             // Y Offset section
-            currentY += 15;
+            yOffsetLabelY = currentY; // Store the Y position for the label
+            currentY += 15; // Space for the label
+
             yOffsetField = new TextFieldWidget(this.textRenderer, centerX, currentY, textFieldWidth, buttonHeight, Text.literal(""));
             yOffsetField.setText(String.valueOf(config.getYOffset()));
             yOffsetField.setChangedListener(text -> {
@@ -149,6 +161,11 @@ class SimpleConfigScreen extends Screen {
             currentY += 35;
         }
 
+        // Store the label positions as instance variables so render() can use them
+        this.xOffsetLabelY = xOffsetLabelY;
+        this.yOffsetLabelY = yOffsetLabelY;
+
+        // Rest of the buttons...
         // Toggle exclamation marks
         this.addDrawableChild(ButtonWidget.builder(
                         Text.literal("Show Exclamation Marks: " + config.isShowExclamationMarks()),
@@ -316,9 +333,10 @@ class SimpleConfigScreen extends Screen {
 
         context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 15, 0xFFFFFF);
 
-        if (!isInteractiveMode) {
-            context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("X Offset"), this.width / 2, 80, 0xFFFFFF);
-            context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("Y Offset"), this.width / 2, 130, 0xFFFFFF);
+        // Only show X/Y offset labels when NOT in interactive mode and the fields exist
+        if (!isInteractiveMode && xOffsetField != null && yOffsetField != null) {
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("X Offset"), this.width / 2, xOffsetLabelY, 0xFFFFFF);
+            context.drawCenteredTextWithShadow(this.textRenderer, Text.literal("Y Offset"), this.width / 2, yOffsetLabelY, 0xFFFFFF);
         }
 
         // Render the preview HUD in interactive mode

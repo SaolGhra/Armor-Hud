@@ -1,10 +1,12 @@
 package com.saolghra.armor_hud.client;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.saolghra.armor_hud.client.config.ArmorHudConfig;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gl.RenderPipelines;
+import net.minecraft.client.render.RenderLayer;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.Identifier;
 
@@ -88,7 +90,7 @@ public class ArmorHudOverlay {
         int drawY = boxY + offsetY + (int) bobbingOffset;
 
         context.drawTexture(
-                RenderPipelines.GUI_TEXTURED,
+                RenderLayer::getGuiTexturedOverlay,
                 EXCLAMATION_MARKS_TEXTURE,
                 drawX, drawY,
                 0, 0,
@@ -99,7 +101,7 @@ public class ArmorHudOverlay {
 
     private void drawTexture(DrawContext context, int x, int y, int width, int height) {
         context.drawTexture(
-                RenderPipelines.GUI_TEXTURED,
+                RenderLayer::getGuiTexturedOverlay,
                 HOTBAR_TEXTURE,
                 x, y,
                 0, 0,
