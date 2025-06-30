@@ -1,6 +1,5 @@
 package com.saolghra.armor_hud.client;
 
-import com.mojang.blaze3d.systems.RenderSystem;
 import com.saolghra.armor_hud.client.config.ArmorHudConfig;
 
 import net.minecraft.client.MinecraftClient;
