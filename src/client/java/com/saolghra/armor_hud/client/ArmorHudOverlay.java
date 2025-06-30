@@ -4,7 +4,7 @@ import com.saolghra.armor_hud.client.config.ArmorHudConfig;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.render.RenderLayer;
+import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.Identifier;
 
@@ -21,22 +21,14 @@ public class ArmorHudOverlay {
         }
 
         // Get armor items
-        ItemStack[] armorItems = client.player.getInventory().armor.toArray(new ItemStack[0]);
-
-        // Position for the armor boxes
-//        int boxSize = 22;
-//        int spacing = 2; // Was 4
+        ItemStack[] armorItems = new ItemStack[4];
+        for (int i = 0; i < 4; i++) {
+            armorItems[i] = client.player.getInventory().getStack(36 + i);
+        }
 
         // Get screen width and height
         int screenWidth = client.getWindow().getScaledWidth();
         int screenHeight = client.getWindow().getScaledHeight();
-
-        // Calculate the position for the offhand slot
-        int offhandSlotX = screenWidth / 2 - 124; // Was 2 - 120
-
-        // Offset based on offhand slot position
-//        int xOffset = offhandSlotX - (armorItems.length * (boxSize + spacing) + spacing);
-//        int yOffset = screenHeight - 22;
 
         // Use config values
         int boxSize = config.getBoxSize();
@@ -44,31 +36,22 @@ public class ArmorHudOverlay {
         int xOffset = screenWidth / 2 + config.getXOffset();
         int yOffset = screenHeight + config.getYOffset();
 
-        // Bind the hotbar texture
-        context.getMatrices().push();
-        context.getMatrices().scale(1.0f, 1.0f, 1.0f);
-        context.getMatrices().pop();
-
-        // int i = 0; i < armorItems.length; i++
+        // Draw armor boxes and icons
         for (int i = armorItems.length - 1; i >= 0; i--) {
             ItemStack armorItem = armorItems[i];
 
             if (!armorItem.isEmpty()) {
-                // Reused variable redeclaration.
                 int armorSpacing = (armorItems.length - 1 - i) * (boxSize + spacing);
 
                 // Draw box background
                 drawTexture(context, xOffset + armorSpacing, yOffset, boxSize, boxSize);
 
                 // Draw armor icon
-                context.getMatrices().push();
-                context.getMatrices().translate(0, 0, 0);
                 context.drawItem(armorItem, xOffset + armorSpacing + (boxSize - 16) / 2, yOffset + (boxSize - 16) / 2);
-                context.getMatrices().pop();
             }
         }
 
-        // Draw durability bar separately so it is on top
+        // Draw durability bar and exclamation mark
         for (int i = armorItems.length - 1; i >= 0; i--) {
             ItemStack armorItem = armorItems[i];
 
@@ -76,27 +59,16 @@ public class ArmorHudOverlay {
                 int armorSpacing = (armorItems.length - 1 - i) * (boxSize + spacing);
 
                 // Draw the durability
-                context.getMatrices().push();
-                context.getMatrices().translate(0, 0, 200);
                 drawDurabilityBar(context, xOffset + armorSpacing, yOffset + boxSize - 6, boxSize, armorItem);
-                context.getMatrices().pop();
 
-//                if(isDurabilityLow(armorItem)) {
-//                    drawExclamationMark(context, xOffset + armorSpacing + (boxSize - 16) / 2, yOffset - 20);
-//                }
+                // Draw exclamation mark if needed
                 if (isDurabilityLow(armorItem) && config.isShowExclamationMarks()) {
-                    drawExclamationMark(context, xOffset + armorSpacing + (boxSize - 16) / 2, yOffset - 20);
+                    // Exclamation mark appears at the top right of the box
+                    drawExclamationMark(context, xOffset + armorSpacing, yOffset, boxSize);
                 }
             }
         }
     }
-
-    // Check if the durability is low
-//    private boolean isDurabilityLow(ItemStack item) {
-//        int maxDamage = item.getMaxDamage();
-//        int damage = item.getDamage();
-//        return damage > 0 && (maxDamage - damage) / (float) maxDamage < 0.20;
-//    }
 
     private boolean isDurabilityLow(ItemStack item) {
         int maxDamage = item.getMaxDamage();
@@ -104,37 +76,35 @@ public class ArmorHudOverlay {
         return damage > 0 && (maxDamage - damage) / (float) maxDamage < config.getDurabilityWarningThreshold();
     }
 
-    private void drawExclamationMark(DrawContext context, int x, int y) {
+    private void drawExclamationMark(DrawContext context, int boxX, int boxY, int boxSize) {
         long currentTime = System.currentTimeMillis();
-
-        // Calculate the bobbing offset using a sine wave function
         float bobbingOffset = (float) Math.sin(currentTime / 200.0) * 2;
 
-        // Draw the exclamation marks
-        context.getMatrices().push();
-        context.getMatrices().translate(x - 5, y + 16 + bobbingOffset, 500);
-        context.getMatrices().scale(0.5f, 0.5f, 500f);
+        int iconSize = 11;
+        int offsetX = 0; // No offset from left edge (or try 1-2 for a tiny gap)
+        int offsetY = -2; // Slightly above the box
+
+        int drawX = boxX + offsetX; // Now positioned from the LEFT edge
+        int drawY = boxY + offsetY + (int) bobbingOffset;
 
         context.drawTexture(
-                RenderLayer::getGuiTexturedOverlay,
+                RenderPipelines.GUI_TEXTURED,
                 EXCLAMATION_MARKS_TEXTURE,
+                drawX, drawY,
                 0, 0,
-                0f, 0f,
-                22, 22,
-                22, 22
+                iconSize, iconSize,
+                iconSize, iconSize
         );
-
-        context.getMatrices().pop();
     }
 
     private void drawTexture(DrawContext context, int x, int y, int width, int height) {
         context.drawTexture(
-                RenderLayer::getGuiTexturedOverlay,
+                RenderPipelines.GUI_TEXTURED,
                 HOTBAR_TEXTURE,
                 x, y,
-                0f, 0f,
+                0, 0,
                 width, height,
-                22, 22
+                width, height
         );
     }
 
@@ -172,17 +142,17 @@ public class ArmorHudOverlay {
 
     private int convertHSVtoARGB(float h, float s, float v) {
         h = (h % 360 + 360) % 360;
-    
+
         float hh = h / 60.0f;
         int i = (int) hh % 6;
-    
+
         float f = hh - i;
         float p = v * (1 - s);
         float q = v * (1 - f * s);
         float t = v * (1 - (1 - f) * s);
-    
+
         int r = 0, g = 0, b = 0;
-    
+
         switch (i) {
             case 0: r = Math.round(v * 255); g = Math.round(t * 255); b = Math.round(p * 255); break;
             case 1: r = Math.round(q * 255); g = Math.round(v * 255); b = Math.round(p * 255); break;
@@ -191,7 +161,7 @@ public class ArmorHudOverlay {
             case 4: r = Math.round(t * 255); g = Math.round(p * 255); b = Math.round(v * 255); break;
             case 5: r = Math.round(v * 255); g = Math.round(p * 255); b = Math.round(q * 255); break;
         }
-    
+
         // Return standard RGB hex value
         return (255 << 24) | (r << 16) | (g << 8) | b;
     }
