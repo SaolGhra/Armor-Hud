@@ -6,9 +6,9 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.text.Text;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
+import net.minecraft.client.gui.Click;
 
 public class ModMenuIntegration implements ModMenuApi {
     @Override
@@ -24,10 +24,10 @@ class SimpleConfigScreen extends Screen {
     // Interactive positioning variables
     private boolean isDragging = false;
     private boolean isInteractiveMode = false;
-    private int dragStartX = 0;
-    private int dragStartY = 0;
     private int initialConfigX = 0;
     private int initialConfigY = 0;
+    private double dragDeltaX = 0;
+    private double dragDeltaY = 0;
 
     // Preview armor items for the interactive mode
     private final ItemStack[] previewArmor = {
@@ -110,48 +110,48 @@ class SimpleConfigScreen extends Screen {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (isInteractiveMode && button == 0) { // Left click
+    public boolean mouseClicked(Click click, boolean isDoubleClick) {
+        if (isInteractiveMode && click.button() == 0) {
             // Check if click is within the armor HUD area
             int hudX = getHudX();
             int hudY = getHudY();
             int totalWidth = getTotalHudWidth();
             int hudHeight = config.getBoxSize();
 
-            if (mouseX >= hudX && mouseX <= hudX + totalWidth &&
-                    mouseY >= hudY && mouseY <= hudY + hudHeight) {
+            if (click.x() >= hudX && click.x() <= hudX + totalWidth &&
+                    click.y() >= hudY && click.y() <= hudY + hudHeight) {
                 isDragging = true;
-                dragStartX = (int) mouseX;
-                dragStartY = (int) mouseY;
                 initialConfigX = config.getXOffset();
                 initialConfigY = config.getYOffset();
+                dragDeltaX = 0;
+                dragDeltaY = 0;
                 return true;
             }
         }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(click, isDoubleClick);
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (isDragging && button == 0) {
+    public boolean mouseReleased(Click click) {
+        if (isDragging && click.button() == 0) {
             isDragging = false;
             return true;
         }
-        return super.mouseReleased(mouseX, mouseY, button);
+        return super.mouseReleased(click);
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    public boolean mouseDragged(Click click, double deltaX, double deltaY) {
         if (isDragging && isInteractiveMode) {
-            int deltaXInt = (int) mouseX - dragStartX;
-            int deltaYInt = (int) mouseY - dragStartY;
+            dragDeltaX += deltaX;
+            dragDeltaY += deltaY;
 
-            config.setXOffset(initialConfigX + deltaXInt);
-            config.setYOffset(initialConfigY + deltaYInt);
+            config.setXOffset(initialConfigX + (int) dragDeltaX);
+            config.setYOffset(initialConfigY + (int) dragDeltaY);
 
             return true;
         }
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        return super.mouseDragged(click, deltaX, deltaY);
     }
 
     private int getHudX() {
