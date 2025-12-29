@@ -33,41 +33,78 @@ public class ArmorHudOverlay {
         // Use config values
         int boxSize = config.getBoxSize();
         int spacing = config.getSpacing();
-        int xOffset = screenWidth / 2 + config.getXOffset();
-        int yOffset = screenHeight + config.getYOffset();
+    int xOffset = screenWidth / 2 + config.getXOffset();
+    int yOffset = screenHeight + config.getYOffset();
+    boolean vertical = config.isVertical();
 
-        // Draw armor boxes and icons
-        for (int i = armorItems.length - 1; i >= 0; i--) {
-            ItemStack armorItem = armorItems[i];
+        // Draw armor boxes and icons (iterate by slot: 0 boots -> 3 helmet)
+        for (int slot = 0; slot < armorItems.length; slot++) {
+            ItemStack armorItem = armorItems[slot];
 
             if (!armorItem.isEmpty()) {
-                int armorSpacing = (armorItems.length - 1 - i) * (boxSize + spacing);
+                int armorSpacing = slot * (boxSize + spacing);
+
+                int drawX = vertical ? xOffset : xOffset + ((armorItems.length - 1 - slot) * (boxSize + spacing));
+                int drawY = vertical ? (yOffset - boxSize - armorSpacing) : yOffset;
 
                 // Draw box background
-                drawTexture(context, xOffset + armorSpacing, yOffset, boxSize, boxSize);
+                drawTexture(context, drawX, drawY, boxSize, boxSize);
 
                 // Draw armor icon
-                context.drawItem(armorItem, xOffset + armorSpacing + (boxSize - 16) / 2, yOffset + (boxSize - 16) / 2);
+                context.drawItem(armorItem, drawX + (boxSize - 16) / 2, drawY + (boxSize - 16) / 2);
             }
         }
 
         // Draw durability bar and exclamation mark
-        for (int i = armorItems.length - 1; i >= 0; i--) {
-            ItemStack armorItem = armorItems[i];
+        for (int slot = 0; slot < armorItems.length; slot++) {
+            ItemStack armorItem = armorItems[slot];
 
             if (!armorItem.isEmpty()) {
-                int armorSpacing = (armorItems.length - 1 - i) * (boxSize + spacing);
+                int armorSpacing = slot * (boxSize + spacing);
 
-                // Draw the durability
-                drawDurabilityBar(context, xOffset + armorSpacing, yOffset + boxSize - 6, boxSize, armorItem);
+                int drawX = vertical ? xOffset : xOffset + ((armorItems.length - 1 - slot) * (boxSize + spacing));
+                int drawY = vertical ? (yOffset - boxSize - armorSpacing) : yOffset;
+
+                // Draw the durability (either bar or numeric points)
+                if (config.isShowDurabilityPoints()) {
+                    drawDurabilityPoints(context, drawX, drawY, boxSize, armorItem);
+                } else {
+                    drawDurabilityBar(context, drawX, drawY + boxSize - 6, boxSize, armorItem);
+                }
 
                 // Draw exclamation mark if needed
                 if (isDurabilityLow(armorItem) && config.isShowExclamationMarks()) {
                     // Exclamation mark appears at the top right of the box
-                    drawExclamationMark(context, xOffset + armorSpacing, yOffset, boxSize);
+                    drawExclamationMark(context, drawX, drawY, boxSize);
                 }
             }
         }
+    }
+
+    private void drawDurabilityPoints(DrawContext context, int boxX, int boxY, int boxSize, ItemStack item) {
+        int maxDamage = item.getMaxDamage();
+        int damage = item.getDamage();
+
+        if (maxDamage <= 0) return;
+
+        int remaining = maxDamage - damage;
+        String text = String.valueOf(remaining);
+
+        // Draw a small badge at the top-right inside the box so it doesn't cover the icon
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client == null) return;
+
+        // Draw small numeric durability as compact top-right label (no badge) so it doesn't cover the icon.
+    String numText = text;
+    // compact will be the working string; we won't do last-two-digit truncation here
+    String compact = numText;
+            // Always show the full remaining number (no '+'). If it overflows the box it will still be drawn.
+            String display = compact;
+            int finalWidth = client.textRenderer.getWidth(display);
+            int finalX = boxX + boxSize - 2 - finalWidth;
+            int drawTextY = boxY + 2; // small inset from top
+            // slightly more transparent white to feel smaller
+            context.drawTextWithShadow(client.textRenderer, display, finalX, drawTextY, 0x88FFFFFF);
     }
 
     private boolean isDurabilityLow(ItemStack item) {
@@ -119,21 +156,23 @@ public class ArmorHudOverlay {
         // Total width of the durability bar
         int barWidth = 13;
         int barX = x + (width - barWidth) / 2 + 1;
-        int barHeight = 2;
+        int barHeight = 3;
 
         float durabilityRatio = ((maxDamage - damage) / (float) maxDamage);
 
-        // Get remaining width using increments of barWidth / 13
-        int remainingWidth = (int) Math.round(durabilityRatio * 13);
+        // Clamp and compute remaining width
+        int remainingWidth = Math.max(0, Math.min(barWidth, (int) Math.round(durabilityRatio * barWidth)));
 
-        // Get durability bar color from HSV
-        int barColor = convertHSVtoARGB((durabilityRatio / 3f) * 360, 1, 1);
+        // Get durability bar color from HSV (green->red)
+        int barColor = convertHSVtoARGB(durabilityRatio * 120f, 1f, 1f); // 120 deg ~ green, 0 deg red
 
         // Draw whole black background
         fill(context, barX, y, barX + barWidth, y + barHeight, 0xFF000000);
 
-        // Draw the remaining durability over the background
-        fill(context, barX, y, barX + remainingWidth, y + barHeight / 2, barColor);
+        // Draw the remaining durability over the background (full height)
+        if (remainingWidth > 0) {
+            fill(context, barX, y, barX + remainingWidth, y + barHeight, barColor);
+        }
     }
 
     private void fill(DrawContext context, int x1, int y1, int x2, int y2, int color) {

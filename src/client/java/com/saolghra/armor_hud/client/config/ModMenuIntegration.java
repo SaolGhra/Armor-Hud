@@ -91,6 +91,28 @@ class SimpleConfigScreen extends Screen {
                 .build());
         currentY += 30;
 
+    // Toggle vertical layout
+    this.addDrawableChild(ButtonWidget.builder(
+            Text.literal("Vertical Layout: " + config.isVertical()),
+            button -> {
+                config.setVertical(!config.isVertical());
+                button.setMessage(Text.literal("Vertical Layout: " + config.isVertical()));
+            })
+        .dimensions(centerX, currentY, buttonWidth, buttonHeight)
+        .build());
+    currentY += 30;
+
+    // Toggle durability points
+    this.addDrawableChild(ButtonWidget.builder(
+            Text.literal("Show Durability Points: " + config.isShowDurabilityPoints()),
+            button -> {
+                config.setShowDurabilityPoints(!config.isShowDurabilityPoints());
+                button.setMessage(Text.literal("Show Durability Points: " + config.isShowDurabilityPoints()));
+            })
+        .dimensions(centerX, currentY, buttonWidth, buttonHeight)
+        .build());
+    currentY += 30;
+
         // Reset button
         this.addDrawableChild(ButtonWidget.builder(
                         Text.literal("Reset to Defaults"),
@@ -115,17 +137,31 @@ class SimpleConfigScreen extends Screen {
             // Check if click is within the armor HUD area
             int hudX = getHudX();
             int hudY = getHudY();
-            int totalWidth = getTotalHudWidth();
-            int hudHeight = config.getBoxSize();
+            if (config.isVertical()) {
+                int totalHeight = getTotalHudHeight();
+                // Vertical HUD occupies boxSize width and totalHeight tall, ending at hudY
+                if (mouseX >= hudX && mouseX <= hudX + config.getBoxSize() &&
+                        mouseY >= hudY - totalHeight && mouseY <= hudY) {
+                    isDragging = true;
+                    dragStartX = (int) mouseX;
+                    dragStartY = (int) mouseY;
+                    initialConfigX = config.getXOffset();
+                    initialConfigY = config.getYOffset();
+                    return true;
+                }
+            } else {
+                int totalWidth = getTotalHudWidth();
+                int hudHeight = config.getBoxSize();
 
-            if (mouseX >= hudX && mouseX <= hudX + totalWidth &&
-                    mouseY >= hudY && mouseY <= hudY + hudHeight) {
+                if (mouseX >= hudX && mouseX <= hudX + totalWidth &&
+                        mouseY >= hudY && mouseY <= hudY + hudHeight) {
                 isDragging = true;
                 dragStartX = (int) mouseX;
                 dragStartY = (int) mouseY;
                 initialConfigX = config.getXOffset();
                 initialConfigY = config.getYOffset();
                 return true;
+            }
             }
         }
         return super.mouseClicked(mouseX, mouseY, button);
@@ -166,6 +202,10 @@ class SimpleConfigScreen extends Screen {
         return 4 * config.getBoxSize() + 3 * config.getSpacing();
     }
 
+    private int getTotalHudHeight() {
+        return 4 * config.getBoxSize() + 3 * config.getSpacing();
+    }
+
     private void renderPreviewHud(DrawContext context) {
         if (!isInteractiveMode) return;
 
@@ -178,47 +218,63 @@ class SimpleConfigScreen extends Screen {
         int xOffset = getHudX();
         int yOffset = getHudY();
 
-        // Draw armor boxes and icons first
-        for (int i = previewArmor.length - 1; i >= 0; i--) {
-            ItemStack armorItem = previewArmor[i];
-            int armorSpacing = (previewArmor.length - 1 - i) * (boxSize + spacing);
+    // Draw armor boxes and icons first (iterate slots 0..3 where slot 0=boots, 3=helmet)
+    for (int slot = 0; slot < previewArmor.length; slot++) {
+        ItemStack armorItem = previewArmor[previewArmor.length - 1 - slot]; // map slot->preview index
+        int armorSpacing = slot * (boxSize + spacing);
 
-            // Draw box background - semi-transparent black background
-            context.fill(xOffset + armorSpacing, yOffset,
-                    xOffset + armorSpacing + boxSize, yOffset + boxSize,
-                    0x80000000);
+        int drawX = config.isVertical() ? xOffset : xOffset + ((previewArmor.length - 1 - slot) * (boxSize + spacing));
+        int drawY = config.isVertical() ? (yOffset - boxSize - armorSpacing) : yOffset;
 
-            // Draw armor icon
-            context.drawItem(armorItem,
-                    xOffset + armorSpacing + (boxSize - 16) / 2,
-                    yOffset + (boxSize - 16) / 2);
-        }
+        // Draw box background - semi-transparent black background
+        context.fill(drawX, drawY,
+            drawX + boxSize, drawY + boxSize,
+            0x80000000);
+
+        // Draw armor icon
+        context.drawItem(armorItem,
+            drawX + (boxSize - 16) / 2,
+            drawY + (boxSize - 16) / 2);
+    }
 
         // Translate to even higher z-level for durability bars and exclamation marks
         // context.getMatrices().translate(0, 0, 200);
 
         // Draw durability bars and exclamation marks on top
-        for (int i = previewArmor.length - 1; i >= 0; i--) {
-            ItemStack armorItem = previewArmor[i];
-            int armorSpacing = (previewArmor.length - 1 - i) * (boxSize + spacing);
+        for (int slot = 0; slot < previewArmor.length; slot++) {
+            ItemStack armorItem = previewArmor[previewArmor.length - 1 - slot];
+            int armorSpacing = slot * (boxSize + spacing);
 
-            // Draw durability bar (simplified version)
+            int drawX = config.isVertical() ? xOffset : xOffset + ((previewArmor.length - 1 - slot) * (boxSize + spacing));
+            int drawY = config.isVertical() ? (yOffset - boxSize - armorSpacing) : yOffset;
+
+            // Draw durability bar or points
             if (armorItem.getMaxDamage() > 0) {
                 int damage = armorItem.getDamage();
                 int maxDamage = armorItem.getMaxDamage();
                 float durabilityRatio = ((maxDamage - damage) / (float) maxDamage);
 
-                int barWidth = 13;
-                int barX = xOffset + armorSpacing + (boxSize - barWidth) / 2 + 1;
-                int barY = yOffset + boxSize - 6;
-                int barHeight = 2;
-                int remainingWidth = (int) Math.round(durabilityRatio * 13);
+                if (config.isShowDurabilityPoints()) {
+                    String numText = String.valueOf(maxDamage - damage);
+                    int drawTextY = drawY + 2;
+                    String compact = numText;
+                    // Always show the full remaining number (no '+'). Use slightly lower opacity.
+                    String display = compact;
+                    int finalWidth = this.textRenderer.getWidth(display);
+                    int finalX = drawX + boxSize - 2 - finalWidth;
+                    context.drawTextWithShadow(this.textRenderer, Text.literal(display), finalX, drawTextY, 0x88FFFFFF);
+                } else {
+                    int barWidth = 13;
+                    int barX = drawX + (boxSize - barWidth) / 2 + 1;
+                    int barY = drawY + boxSize - 6;
+                    int barHeight = 3;
+                    int remainingWidth = Math.max(0, Math.min(barWidth, (int) Math.round(durabilityRatio * barWidth)));
 
-                // Simple red to green color based on durability
-                int barColor = durabilityRatio > 0.5f ? 0xFF00FF00 : 0xFFFF0000;
+                    int barColor = durabilityRatio > 0.5f ? 0xFF00FF00 : 0xFFFF8800;
 
-                context.fill(barX, barY, barX + barWidth, barY + barHeight, 0xFF000000);
-                context.fill(barX, barY, barX + remainingWidth, barY + barHeight, barColor);
+                    context.fill(barX, barY, barX + barWidth, barY + barHeight, 0xFF000000);
+                    if (remainingWidth > 0) context.fill(barX, barY, barX + remainingWidth, barY + barHeight, barColor);
+                }
             }
 
             // Draw exclamation mark if enabled and durability is low
@@ -230,8 +286,8 @@ class SimpleConfigScreen extends Screen {
                 if (durabilityRatio < config.getDurabilityWarningThreshold()) {
                     // Simple exclamation mark using text
                     context.drawTextWithShadow(this.textRenderer, "!",
-                            xOffset + armorSpacing - 1,
-                            yOffset - 2,
+                            drawX - 1,
+                            drawY - 2,
                             0xFFFFFF00);
                 }
             }

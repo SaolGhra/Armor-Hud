@@ -17,6 +17,8 @@ public class ArmorHudConfig {
     private int xOffset;
     private int yOffset;
     private boolean showExclamationMarks;
+    private boolean vertical;
+    private boolean showDurabilityPoints;
     private float durabilityWarningThreshold;
     private int boxSize;
     private int spacing;
@@ -27,6 +29,8 @@ public class ArmorHudConfig {
     private static final int DEFAULT_Y_OFFSET = -22;
     private static final int DEFAULT_BOX_SIZE = 22;
     private static final int DEFAULT_SPACING = 2;
+    private static final boolean DEFAULT_VERTICAL = false;
+    private static final boolean DEFAULT_SHOW_DURABILITY_POINTS = false;
 
 
     public ArmorHudConfig() {}
@@ -60,6 +64,8 @@ public class ArmorHudConfig {
         config.boxSize = DEFAULT_BOX_SIZE;
         config.spacing = DEFAULT_SPACING;
         config.showExclamationMarks = true;
+        config.vertical = DEFAULT_VERTICAL;
+        config.showDurabilityPoints = DEFAULT_SHOW_DURABILITY_POINTS;
         config.durabilityWarningThreshold = 0.20f;
         config.visible = true;
         config.saveConfig();
@@ -72,6 +78,8 @@ public class ArmorHudConfig {
         boxSize = DEFAULT_BOX_SIZE;
         spacing = DEFAULT_SPACING;
         showExclamationMarks = true;
+        vertical = DEFAULT_VERTICAL;
+        showDurabilityPoints = DEFAULT_SHOW_DURABILITY_POINTS;
         durabilityWarningThreshold = 0.20f;
         visible = true;
     }
@@ -109,6 +117,8 @@ public class ArmorHudConfig {
             this.xOffset = other.xOffset;
             this.yOffset = other.yOffset;
             this.showExclamationMarks = other.showExclamationMarks;
+            this.vertical = other.vertical;
+            this.showDurabilityPoints = other.showDurabilityPoints;
             this.durabilityWarningThreshold = other.durabilityWarningThreshold;
             this.boxSize = other.boxSize;
             this.spacing = other.spacing;
@@ -138,6 +148,18 @@ public class ArmorHudConfig {
     public boolean isShowExclamationMarks() { return showExclamationMarks; }
     public void setShowExclamationMarks(boolean show) {
         this.showExclamationMarks = show;
+        saveConfig();
+    }
+
+    public boolean isVertical() { return vertical; }
+    public void setVertical(boolean vertical) {
+        this.vertical = vertical;
+        saveConfig();
+    }
+
+    public boolean isShowDurabilityPoints() { return showDurabilityPoints; }
+    public void setShowDurabilityPoints(boolean show) {
+        this.showDurabilityPoints = show;
         saveConfig();
     }
 
