@@ -5,6 +5,7 @@ import com.terraformersmc.modmenu.api.ModMenuApi;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.Click;
 import net.minecraft.text.Text;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.item.ItemStack;
@@ -132,8 +133,11 @@ class SimpleConfigScreen extends Screen {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (isInteractiveMode && button == 0) { // Left click
+    public boolean mouseClicked(Click click, boolean doubleClick) {
+        double mouseX = click.x();
+        double mouseY = click.y();
+
+        if (isInteractiveMode && click.button() == 0) { // Left click
             // Check if click is within the armor HUD area
             int hudX = getHudX();
             int hudY = getHudY();
@@ -164,30 +168,30 @@ class SimpleConfigScreen extends Screen {
             }
             }
         }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(click, doubleClick);
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (isDragging && button == 0) {
+    public boolean mouseReleased(Click click) {
+        if (isDragging && click.button() == 0) {
             isDragging = false;
             return true;
         }
-        return super.mouseReleased(mouseX, mouseY, button);
+        return super.mouseReleased(click);
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    public boolean mouseDragged(Click click, double deltaX, double deltaY) {
         if (isDragging && isInteractiveMode) {
-            int deltaXInt = (int) mouseX - dragStartX;
-            int deltaYInt = (int) mouseY - dragStartY;
+            int deltaXInt = (int) click.x() - dragStartX;
+            int deltaYInt = (int) click.y() - dragStartY;
 
             config.setXOffset(initialConfigX + deltaXInt);
             config.setYOffset(initialConfigY + deltaYInt);
 
             return true;
         }
-        return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        return super.mouseDragged(click, deltaX, deltaY);
     }
 
     private int getHudX() {
