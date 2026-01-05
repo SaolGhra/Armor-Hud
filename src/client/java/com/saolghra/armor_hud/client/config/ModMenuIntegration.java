@@ -269,15 +269,20 @@ class SimpleConfigScreen extends Screen {
                     context.drawTextWithShadow(this.textRenderer, Text.literal(display), finalX, drawTextY, 0x88FFFFFF);
                 } else {
                     int barWidth = 13;
-                    int barX = drawX + (boxSize - barWidth) / 2 + 1;
+                    int barX = drawX + (boxSize - barWidth) / 2;
                     int barY = drawY + boxSize - 6;
-                    int barHeight = 3;
-                    int remainingWidth = Math.max(0, Math.min(barWidth, (int) Math.round(durabilityRatio * barWidth)));
+                    durabilityRatio = Math.max(0.0f, Math.min(1.0f, durabilityRatio));
+                    int remainingWidth = Math.max(0, Math.min(barWidth, Math.round(durabilityRatio * barWidth)));
 
-                    int barColor = durabilityRatio > 0.5f ? 0xFF00FF00 : 0xFFFF8800;
+                    // Match vanilla-style durability bar visuals.
+                    // Compute hue-based color (green->red) without adding extra helpers.
+                    float hueDegrees = durabilityRatio * 120.0f;
+                    int argb = hsvToArgb(hueDegrees, 1.0f, 1.0f);
 
-                    context.fill(barX, barY, barX + barWidth, barY + barHeight, 0xFF000000);
-                    if (remainingWidth > 0) context.fill(barX, barY, barX + remainingWidth, barY + barHeight, barColor);
+                    context.fill(barX, barY, barX + barWidth, barY + 2, 0xFF000000);
+                    if (remainingWidth > 0) {
+                        context.fill(barX, barY, barX + remainingWidth, barY + 1, 0xFF000000 | (argb & 0x00FFFFFF));
+                    }
                 }
             }
 
@@ -314,6 +319,30 @@ class SimpleConfigScreen extends Screen {
         }
 
         // context.getMatrices().pop();
+    }
+
+    private static int hsvToArgb(float h, float s, float v) {
+        h = (h % 360 + 360) % 360;
+
+        float hh = h / 60.0f;
+        int i = (int) hh % 6;
+
+        float f = hh - i;
+        float p = v * (1 - s);
+        float q = v * (1 - f * s);
+        float t = v * (1 - (1 - f) * s);
+
+        int r = 0, g = 0, b = 0;
+        switch (i) {
+            case 0 -> { r = Math.round(v * 255); g = Math.round(t * 255); b = Math.round(p * 255); }
+            case 1 -> { r = Math.round(q * 255); g = Math.round(v * 255); b = Math.round(p * 255); }
+            case 2 -> { r = Math.round(p * 255); g = Math.round(v * 255); b = Math.round(t * 255); }
+            case 3 -> { r = Math.round(p * 255); g = Math.round(q * 255); b = Math.round(v * 255); }
+            case 4 -> { r = Math.round(t * 255); g = Math.round(p * 255); b = Math.round(v * 255); }
+            case 5 -> { r = Math.round(v * 255); g = Math.round(p * 255); b = Math.round(q * 255); }
+        }
+
+        return (255 << 24) | (r << 16) | (g << 8) | b;
     }
 
     @Override

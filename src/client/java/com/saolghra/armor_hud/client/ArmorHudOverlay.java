@@ -149,29 +149,27 @@ public class ArmorHudOverlay {
         int maxDamage = item.getMaxDamage();
         int damage = item.getDamage();
 
-        if (damage == 0) {
+        if (maxDamage <= 0 || damage <= 0) {
             return;
         }
 
         // Total width of the durability bar
         int barWidth = 13;
-        int barX = x + (width - barWidth) / 2 + 1;
-        int barHeight = 3;
+        int barX = x + (width - barWidth) / 2;
 
-        float durabilityRatio = ((maxDamage - damage) / (float) maxDamage);
+        float durabilityRatio = (maxDamage - damage) / (float) maxDamage;
+        durabilityRatio = Math.max(0.0f, Math.min(1.0f, durabilityRatio));
 
-        // Clamp and compute remaining width
-        int remainingWidth = Math.max(0, Math.min(barWidth, (int) Math.round(durabilityRatio * barWidth)));
+        int remainingWidth = Math.max(0, Math.min(barWidth, Math.round(durabilityRatio * barWidth)));
 
-        // Get durability bar color from HSV (green->red)
-        int barColor = convertHSVtoARGB(durabilityRatio * 120f, 1f, 1f); // 120 deg ~ green, 0 deg red
+        // Vanilla-style durability bar: 2px black background with 1px colored foreground.
+        int barColor = convertHSVtoARGB(durabilityRatio * 120f, 1f, 1f);
+        int barBackgroundHeight = 2;
+        int barForegroundHeight = 1;
 
-        // Draw whole black background
-        fill(context, barX, y, barX + barWidth, y + barHeight, 0xFF000000);
-
-        // Draw the remaining durability over the background (full height)
+        fill(context, barX, y, barX + barWidth, y + barBackgroundHeight, 0xFF000000);
         if (remainingWidth > 0) {
-            fill(context, barX, y, barX + remainingWidth, y + barHeight, barColor);
+            fill(context, barX, y, barX + remainingWidth, y + barForegroundHeight, 0xFF000000 | (barColor & 0x00FFFFFF));
         }
     }
 
