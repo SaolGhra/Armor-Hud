@@ -216,14 +216,15 @@ public class ModMenuIntegration implements ModMenuApi {
 
             int boxSize = config.getBoxSize();
             int spacing = config.getSpacing();
+            int slotStride = boxSize + spacing;
             int xOffset = getHudX();
             int yOffset = getHudY();
 
             for (int slot = 0; slot < previewArmor.length; slot++) {
                 ItemStack armorItem = previewArmor[previewArmor.length - 1 - slot];
-                int armorSpacing = slot * (boxSize + spacing);
+                int armorSpacing = slot * slotStride;
 
-                int drawX = config.isVertical() ? xOffset : xOffset + ((previewArmor.length - 1 - slot) * (boxSize + spacing));
+                int drawX = config.isVertical() ? xOffset : xOffset + ((previewArmor.length - 1 - slot) * slotStride);
                 int drawY = config.isVertical() ? (yOffset - boxSize - armorSpacing) : yOffset;
 
                 graphics.fill(drawX, drawY, drawX + boxSize, drawY + boxSize, 0x80000000);
@@ -232,9 +233,9 @@ public class ModMenuIntegration implements ModMenuApi {
 
             for (int slot = 0; slot < previewArmor.length; slot++) {
                 ItemStack armorItem = previewArmor[previewArmor.length - 1 - slot];
-                int armorSpacing = slot * (boxSize + spacing);
+                int armorSpacing = slot * slotStride;
 
-                int drawX = config.isVertical() ? xOffset : xOffset + ((previewArmor.length - 1 - slot) * (boxSize + spacing));
+                int drawX = config.isVertical() ? xOffset : xOffset + ((previewArmor.length - 1 - slot) * slotStride);
                 int drawY = config.isVertical() ? (yOffset - boxSize - armorSpacing) : yOffset;
 
                 if (armorItem.getMaxDamage() > 0) {

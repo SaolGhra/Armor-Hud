@@ -11,7 +11,7 @@ import net.minecraft.world.item.ItemStack;
 
 public class ArmorHudOverlay {
     private final ArmorHudConfig config = ArmorHudConfig.getInstance();
-    private static final Identifier HOTBAR_TEXTURE = Identifier.parse("armor_hud:textures/gui/hotbar_texture.png");
+    private static final Identifier HOTBAR_OFFHAND_LEFT = Identifier.parse("minecraft:textures/gui/sprites/hud/hotbar_offhand_left.png");
     private static final Identifier EXCLAMATION_MARKS_TEXTURE = Identifier.parse("armor_hud:textures/gui/exclamation_marks_flash.png");
 
     public void renderArmorUI(GuiGraphicsExtractor graphics) {
@@ -32,23 +32,24 @@ public class ArmorHudOverlay {
         int screenHeight = client.getWindow().getGuiScaledHeight();
 
         // Use config values
+        boolean vertical = config.isVertical();
         int boxSize = config.getBoxSize();
         int spacing = config.getSpacing();
+        int slotStride = boxSize + spacing;
     int xOffset = screenWidth / 2 + config.getXOffset();
     int yOffset = screenHeight + config.getYOffset();
-    boolean vertical = config.isVertical();
 
         // Draw armor boxes and icons (iterate by slot: 0 boots -> 3 helmet)
         for (int slot = 0; slot < armorItems.length; slot++) {
             ItemStack armorItem = armorItems[slot];
 
             if (!armorItem.isEmpty()) {
-                int armorSpacing = slot * (boxSize + spacing);
+                int armorSpacing = slot * slotStride;
 
-                int drawX = vertical ? xOffset : xOffset + ((armorItems.length - 1 - slot) * (boxSize + spacing));
+                int drawX = vertical ? xOffset : xOffset + ((armorItems.length - 1 - slot) * slotStride);
                 int drawY = vertical ? (yOffset - boxSize - armorSpacing) : yOffset;
 
-                // Draw box background
+                // Draw slot background
                 drawTexture(graphics, drawX, drawY, boxSize, boxSize);
 
                 // Draw armor icon
@@ -61,9 +62,9 @@ public class ArmorHudOverlay {
             ItemStack armorItem = armorItems[slot];
 
             if (!armorItem.isEmpty()) {
-                int armorSpacing = slot * (boxSize + spacing);
+                int armorSpacing = slot * slotStride;
 
-                int drawX = vertical ? xOffset : xOffset + ((armorItems.length - 1 - slot) * (boxSize + spacing));
+                int drawX = vertical ? xOffset : xOffset + ((armorItems.length - 1 - slot) * slotStride);
                 int drawY = vertical ? (yOffset - boxSize - armorSpacing) : yOffset;
 
                 // Draw the durability (either bar or numeric points)
@@ -119,7 +120,7 @@ public class ArmorHudOverlay {
         float bobbingOffset = (float) Math.sin(currentTime / 200.0) * 2;
 
         int iconSize = 11;
-        int offsetX = -1; // Moved from 0 to -1 to shift it slightly left
+        int offsetX = -1;
         int offsetY = -2;
 
         int drawX = boxX + offsetX;
@@ -136,13 +137,23 @@ public class ArmorHudOverlay {
     }
 
     private void drawTexture(GuiGraphicsExtractor graphics, int x, int y, int width, int height) {
+        // hotbar_offhand_left.png is 29x24 pixels
+        // Remove 6 pixels from right side: use first 23 pixels width, full 24 height
+        int spriteWidth = 23;
+        int spriteHeight = 24;
+        
+        // Center the sprite within the configured box
+        int spriteX = x + (width - spriteWidth) / 2;
+        int spriteY = y + (height - spriteHeight) / 2;
+        
+        // Blit with correct texture dimensions: 29x24 (the actual file size)
         graphics.blit(
                 RenderPipelines.GUI_TEXTURED,
-                HOTBAR_TEXTURE,
-                x, y,
-                0, 0,
-                width, height,
-                width, height
+                HOTBAR_OFFHAND_LEFT,
+                spriteX, spriteY,
+                0, 0,           // texture U, V: top-left corner
+                spriteWidth, spriteHeight,  // read 23x24 from texture (removes right 6px)
+                29, 24          // hotbar_offhand_left.png is 29x24
         );
     }
 
