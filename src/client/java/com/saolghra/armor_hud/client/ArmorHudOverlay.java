@@ -2,33 +2,34 @@ package com.saolghra.armor_hud.client;
 
 import com.saolghra.armor_hud.client.config.ArmorHudConfig;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gl.RenderPipelines;
-import net.minecraft.item.ItemStack;
-import net.minecraft.util.Identifier;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.resources.Identifier;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.ItemStack;
 
 public class ArmorHudOverlay {
     private final ArmorHudConfig config = ArmorHudConfig.getInstance();
-    private static final Identifier HOTBAR_TEXTURE = Identifier.of("armor_hud", "textures/gui/hotbar_texture.png");
-    private static final Identifier EXCLAMATION_MARKS_TEXTURE = Identifier.of("armor_hud", "textures/gui/exclamation_marks_flash.png");
+    private static final Identifier HOTBAR_TEXTURE = Identifier.parse("armor_hud:textures/gui/hotbar_texture.png");
+    private static final Identifier EXCLAMATION_MARKS_TEXTURE = Identifier.parse("armor_hud:textures/gui/exclamation_marks_flash.png");
 
-    public void renderArmorUI(DrawContext context) {
-        MinecraftClient client = MinecraftClient.getInstance();
+    public void renderArmorUI(GuiGraphicsExtractor graphics) {
+        Minecraft client = Minecraft.getInstance();
 
-        if (!config.isVisible() || client.options.hudHidden || client.player == null || client.world == null) {
+        if (!config.isVisible() || client.options.hideGui || client.player == null || client.level == null) {
             return;
         }
 
         // Get armor items
         ItemStack[] armorItems = new ItemStack[4];
         for (int i = 0; i < 4; i++) {
-            armorItems[i] = client.player.getInventory().getStack(36 + i);
+            armorItems[i] = client.player.getInventory().getItem(36 + i);
         }
 
         // Get screen width and height
-        int screenWidth = client.getWindow().getScaledWidth();
-        int screenHeight = client.getWindow().getScaledHeight();
+        int screenWidth = client.getWindow().getGuiScaledWidth();
+        int screenHeight = client.getWindow().getGuiScaledHeight();
 
         // Use config values
         int boxSize = config.getBoxSize();
@@ -48,10 +49,10 @@ public class ArmorHudOverlay {
                 int drawY = vertical ? (yOffset - boxSize - armorSpacing) : yOffset;
 
                 // Draw box background
-                drawTexture(context, drawX, drawY, boxSize, boxSize);
+                drawTexture(graphics, drawX, drawY, boxSize, boxSize);
 
                 // Draw armor icon
-                context.drawItem(armorItem, drawX + (boxSize - 16) / 2, drawY + (boxSize - 16) / 2);
+                graphics.item(armorItem, drawX + (boxSize - 16) / 2, drawY + (boxSize - 16) / 2);
             }
         }
 
@@ -67,23 +68,23 @@ public class ArmorHudOverlay {
 
                 // Draw the durability (either bar or numeric points)
                 if (config.isShowDurabilityPoints()) {
-                    drawDurabilityPoints(context, drawX, drawY, boxSize, armorItem);
+                    drawDurabilityPoints(graphics, drawX, drawY, boxSize, armorItem);
                 } else {
-                    drawDurabilityBar(context, drawX, drawY + boxSize - 6, boxSize, armorItem);
+                    drawDurabilityBar(graphics, drawX, drawY + boxSize - 6, boxSize, armorItem);
                 }
 
                 // Draw exclamation mark if needed
                 if (isDurabilityLow(armorItem) && config.isShowExclamationMarks()) {
                     // Exclamation mark appears at the top right of the box
-                    drawExclamationMark(context, drawX, drawY, boxSize);
+                    drawExclamationMark(graphics, drawX, drawY, boxSize);
                 }
             }
         }
     }
 
-    private void drawDurabilityPoints(DrawContext context, int boxX, int boxY, int boxSize, ItemStack item) {
+    private void drawDurabilityPoints(GuiGraphicsExtractor graphics, int boxX, int boxY, int boxSize, ItemStack item) {
         int maxDamage = item.getMaxDamage();
-        int damage = item.getDamage();
+        int damage = item.getDamageValue();
 
         if (maxDamage <= 0) return;
 
@@ -91,7 +92,7 @@ public class ArmorHudOverlay {
         String text = String.valueOf(remaining);
 
         // Draw a small badge at the top-right inside the box so it doesn't cover the icon
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         if (client == null) return;
 
         // Draw small numeric durability as compact top-right label (no badge) so it doesn't cover the icon.
@@ -100,20 +101,20 @@ public class ArmorHudOverlay {
     String compact = numText;
             // Always show the full remaining number (no '+'). If it overflows the box it will still be drawn.
             String display = compact;
-            int finalWidth = client.textRenderer.getWidth(display);
+            int finalWidth = client.font.width(display);
             int finalX = boxX + boxSize - 2 - finalWidth;
             int drawTextY = boxY + 2; // small inset from top
             // slightly more transparent white to feel smaller
-            context.drawTextWithShadow(client.textRenderer, display, finalX, drawTextY, 0x88FFFFFF);
+            graphics.text(client.font, Component.literal(display), finalX, drawTextY, 0x88FFFFFF, true);
     }
 
     private boolean isDurabilityLow(ItemStack item) {
         int maxDamage = item.getMaxDamage();
-        int damage = item.getDamage();
+        int damage = item.getDamageValue();
         return damage > 0 && (maxDamage - damage) / (float) maxDamage < config.getDurabilityWarningThreshold();
     }
 
-    private void drawExclamationMark(DrawContext context, int boxX, int boxY, int boxSize) {
+    private void drawExclamationMark(GuiGraphicsExtractor graphics, int boxX, int boxY, int boxSize) {
         long currentTime = System.currentTimeMillis();
         float bobbingOffset = (float) Math.sin(currentTime / 200.0) * 2;
 
@@ -124,7 +125,7 @@ public class ArmorHudOverlay {
         int drawX = boxX + offsetX;
         int drawY = boxY + offsetY + (int) bobbingOffset;
 
-        context.drawTexture(
+        graphics.blit(
                 RenderPipelines.GUI_TEXTURED,
                 EXCLAMATION_MARKS_TEXTURE,
                 drawX, drawY,
@@ -134,8 +135,8 @@ public class ArmorHudOverlay {
         );
     }
 
-    private void drawTexture(DrawContext context, int x, int y, int width, int height) {
-        context.drawTexture(
+    private void drawTexture(GuiGraphicsExtractor graphics, int x, int y, int width, int height) {
+        graphics.blit(
                 RenderPipelines.GUI_TEXTURED,
                 HOTBAR_TEXTURE,
                 x, y,
@@ -145,9 +146,9 @@ public class ArmorHudOverlay {
         );
     }
 
-    private void drawDurabilityBar(DrawContext context, int x, int y, int width, ItemStack item) {
+    private void drawDurabilityBar(GuiGraphicsExtractor graphics, int x, int y, int width, ItemStack item) {
         int maxDamage = item.getMaxDamage();
-        int damage = item.getDamage();
+        int damage = item.getDamageValue();
 
         if (maxDamage <= 0 || damage <= 0) {
             return;
@@ -155,7 +156,7 @@ public class ArmorHudOverlay {
 
         // Total width of the durability bar
         int barWidth = 13;
-        int barX = x + (width - barWidth) / 2;
+        int barX = x + (width / 2) - (barWidth / 2);
 
         float durabilityRatio = (maxDamage - damage) / (float) maxDamage;
         durabilityRatio = Math.max(0.0f, Math.min(1.0f, durabilityRatio));
@@ -167,14 +168,14 @@ public class ArmorHudOverlay {
         int barBackgroundHeight = 2;
         int barForegroundHeight = 1;
 
-        fill(context, barX, y, barX + barWidth, y + barBackgroundHeight, 0xFF000000);
+        fill(graphics, barX, y, barX + barWidth, y + barBackgroundHeight, 0xFF000000);
         if (remainingWidth > 0) {
-            fill(context, barX, y, barX + remainingWidth, y + barForegroundHeight, 0xFF000000 | (barColor & 0x00FFFFFF));
+            fill(graphics, barX, y, barX + remainingWidth, y + barForegroundHeight, 0xFF000000 | (barColor & 0x00FFFFFF));
         }
     }
 
-    private void fill(DrawContext context, int x1, int y1, int x2, int y2, int color) {
-        context.fill(x1, y1, x2, y2, color);
+    private void fill(GuiGraphicsExtractor graphics, int x1, int y1, int x2, int y2, int color) {
+        graphics.fill(x1, y1, x2, y2, color);
     }
 
     private int convertHSVtoARGB(float h, float s, float v) {
