@@ -63,6 +63,20 @@ def shellQuote(String value) {
     return "'${value.replace("'", "'\"'\"'")}'"
 }
 
+def configureGradleJavaHome(String javaHome) {
+    if (!javaHome) {
+        error('configureGradleJavaHome received an empty JAVA_HOME value.')
+    }
+
+    env.JAVA_HOME = javaHome
+    env.PATH = "${env.JAVA_HOME}/bin:${env.PATH}"
+
+    def existingGradleOpts = (env.GRADLE_OPTS ?: '')
+        .replaceAll(/(^|\s)-Dorg\.gradle\.java\.home=\S+/, ' ')
+        .trim()
+    env.GRADLE_OPTS = "${existingGradleOpts} -Dorg.gradle.java.home=${env.JAVA_HOME}".trim()
+}
+
 pipeline {
     agent {
         label 'linux'
@@ -92,6 +106,22 @@ pipeline {
     stages {
         stage('Preparation') {
             steps {
+                script {
+                    def detectedJavaHome = sh(
+                        script: '''#!/bin/sh
+set -eu
+if [ -n "${JAVA_HOME:-}" ] && [ -x "${JAVA_HOME}/bin/java" ]; then
+    printf '%s' "$JAVA_HOME"
+    exit 0
+fi
+java_path=$(readlink -f "$(command -v java)")
+printf '%s' "$(dirname "$(dirname "$java_path")")"
+''',
+                        returnStdout: true
+                    ).trim()
+                    configureGradleJavaHome(detectedJavaHome)
+                    echo "Using JAVA_HOME ${env.JAVA_HOME} for Gradle startup checks."
+                }
                 echo "Running on node: ${env.NODE_NAME}"
                 sh 'chmod +x ./gradlew'
                 sh 'java -version || true'
@@ -277,8 +307,7 @@ if [ ! -x "$JDK_DIR/bin/java" ]; then
     mv "$EXTRACTED_DIR" "$JDK_DIR"
 fi
 '''
-                        env.JAVA_HOME = "${env.WORKSPACE}/.jdk/temurin-25"
-                        env.PATH = "${env.JAVA_HOME}/bin:${env.PATH}"
+                        configureGradleJavaHome("${env.WORKSPACE}/.jdk/temurin-25")
                         sh 'java -version'
                     }
 
