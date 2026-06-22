@@ -564,7 +564,8 @@ existing_pr_number=$(curl -fsSL \
   -H "Accept: application/vnd.github+json" \
   "https://api.github.com/repos/$repo/pulls?state=open&head=$owner:$target_branch&base=master" |
   tr -d '\n' |
-  sed -n 's/.*"number":\([0-9][0-9]*\).*/\1/p' |
+    grep -Eo '"number":[0-9]+' |
+    cut -d: -f2 |
   head -n 1)
 if [ -n "$existing_pr_number" ]; then
     printf 'EXISTS:%s' "$existing_pr_number"
@@ -579,7 +580,7 @@ http_code=$(curl -sS -o "$response_file" -w '%{http_code}' \
   --data-binary "$payload" \
   "https://api.github.com/repos/$repo/pulls")
 if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
-    pr_url=$(tr -d '\n' < "$response_file" | sed -n 's/.*"html_url":"\([^"]*\)".*/\1/p')
+    pr_url=$(tr -d '\n' < "$response_file" | grep -Eo '"html_url":"[^"]+"' | head -n 1 | cut -d'"' -f4)
     rm -f "$response_file"
     printf 'CREATED:%s' "$pr_url"
     exit 0
