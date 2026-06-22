@@ -10,6 +10,9 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+
 public class ModMenuIntegration implements ModMenuApi {
     @Override
     public ConfigScreenFactory<?> getModConfigScreenFactory() {
@@ -126,7 +129,59 @@ public class ModMenuIntegration implements ModMenuApi {
             if (this.minecraft == null) {
                 return;
             }
-            this.minecraft.setScreen(this.parent);
+
+            if (invokeScreenSetter("setScreen")
+                || invokeScreenSetter("setScreenAndRender")
+                || invokeScreenSetter("setOverlay")
+                || invokeAnySingleScreenSetter()) {
+                return;
+            }
+
+            throw new IllegalStateException("Could not find a supported screen setter method on Minecraft client.");
+        }
+
+        private boolean invokeScreenSetter(String methodName) {
+            Class<?> current = this.minecraft.getClass();
+            while (current != null) {
+                try {
+                    Method method = current.getDeclaredMethod(methodName, Screen.class);
+                    method.setAccessible(true);
+                    method.invoke(this.minecraft, this.parent);
+                    return true;
+                } catch (ReflectiveOperationException ignored) {
+                    current = current.getSuperclass();
+                }
+            }
+            return false;
+        }
+
+        private boolean invokeAnySingleScreenSetter() {
+            Class<?> current = this.minecraft.getClass();
+            while (current != null) {
+                for (Method method : current.getDeclaredMethods()) {
+                    if (Modifier.isStatic(method.getModifiers())) {
+                        continue;
+                    }
+
+                    if (method.getParameterCount() != 1 || method.getReturnType() != Void.TYPE) {
+                        continue;
+                    }
+
+                    if (!Screen.class.isAssignableFrom(method.getParameterTypes()[0])) {
+                        continue;
+                    }
+
+                    try {
+                        method.setAccessible(true);
+                        method.invoke(this.minecraft, this.parent);
+                        return true;
+                    } catch (ReflectiveOperationException ignored) {
+                        // Keep searching for a compatible method.
+                    }
+                }
+                current = current.getSuperclass();
+            }
+            return false;
         }
 
         @Override
