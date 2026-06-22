@@ -10,6 +10,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
+import java.lang.reflect.Method;
+
 public class ModMenuIntegration implements ModMenuApi {
     @Override
     public ConfigScreenFactory<?> getModConfigScreenFactory() {
@@ -112,14 +114,36 @@ public class ModMenuIntegration implements ModMenuApi {
 
             this.addRenderableWidget(Button.builder(
                     Component.literal("Done"),
-                    button -> this.minecraft.setScreen(this.parent))
+                    button -> closeToParent())
                 .bounds(left, this.height - 34, BUTTON_WIDTH, BUTTON_HEIGHT)
                 .build());
         }
 
         @Override
         public void onClose() {
-            this.minecraft.setScreen(this.parent);
+            closeToParent();
+        }
+
+        private void closeToParent() {
+            if (this.minecraft == null) {
+                return;
+            }
+
+            if (invokeScreenSetter("setScreen") || invokeScreenSetter("setScreenAndRender") || invokeScreenSetter("setOverlay")) {
+                return;
+            }
+
+            throw new IllegalStateException("Could not find a supported screen setter method on Minecraft client.");
+        }
+
+        private boolean invokeScreenSetter(String methodName) {
+            try {
+                Method method = this.minecraft.getClass().getMethod(methodName, Screen.class);
+                method.invoke(this.minecraft, this.parent);
+                return true;
+            } catch (ReflectiveOperationException ignored) {
+                return false;
+            }
         }
 
         @Override
