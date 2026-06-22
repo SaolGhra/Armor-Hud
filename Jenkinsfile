@@ -69,7 +69,7 @@ pipeline {
     }
 
     parameters {
-        string(name: 'BRANCH', defaultValue: '26.1.1', description: 'Git branch Jenkins should build and update from.')
+        string(name: 'BRANCH', defaultValue: 'master', description: 'Git branch Jenkins should build and update from.')
         booleanParam(name: 'RUN_VERSION_UPDATE', defaultValue: false, description: 'Run a manual Minecraft dependency update before building.')
         string(name: 'TARGET_MINECRAFT_VERSION', defaultValue: '', description: 'Minecraft version to update to when RUN_VERSION_UPDATE is enabled (for example 26.2).')
         string(name: 'GITHUB_REPOSITORY', defaultValue: 'SaolGhra/Armor-Hud', description: 'owner/repo used for pushing update commits.')
