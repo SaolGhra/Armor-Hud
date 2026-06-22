@@ -9,6 +9,9 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+
 public class ArmorHudOverlay {
     private final ArmorHudConfig config = ArmorHudConfig.getInstance();
     private static final Identifier HOTBAR_OFFHAND_LEFT = Identifier.parse("minecraft:textures/gui/sprites/hud/hotbar_offhand_left.png");
@@ -17,7 +20,7 @@ public class ArmorHudOverlay {
     public void renderArmorUI(GuiGraphicsExtractor graphics) {
         Minecraft client = Minecraft.getInstance();
 
-        if (!config.isVisible() || client.options.hideGui || client.player == null || client.level == null) {
+        if (!config.isVisible() || isHudHidden(client) || client.player == null || client.level == null) {
             return;
         }
 
@@ -187,6 +190,39 @@ public class ArmorHudOverlay {
 
     private void fill(GuiGraphicsExtractor graphics, int x1, int y1, int x2, int y2, int color) {
         graphics.fill(x1, y1, x2, y2, color);
+    }
+
+    private boolean isHudHidden(Minecraft client) {
+        if (client == null || client.options == null) {
+            return true;
+        }
+
+        Object options = client.options;
+        String[] fieldNames = {"hideGui", "hideHud"};
+        for (String fieldName : fieldNames) {
+            try {
+                Field field = options.getClass().getField(fieldName);
+                Object value = field.get(options);
+                if (value instanceof Boolean) {
+                    return (Boolean) value;
+                }
+            } catch (ReflectiveOperationException ignored) {
+            }
+        }
+
+        String[] methodNames = {"hideGui", "hideHud", "isHudHidden"};
+        for (String methodName : methodNames) {
+            try {
+                Method method = options.getClass().getMethod(methodName);
+                Object value = method.invoke(options);
+                if (value instanceof Boolean) {
+                    return (Boolean) value;
+                }
+            } catch (ReflectiveOperationException ignored) {
+            }
+        }
+
+        return false;
     }
 
     private int convertHSVtoARGB(float h, float s, float v) {
