@@ -1,3 +1,5 @@
+import groovy.json.JsonOutput
+
 def parsePropertiesFile(String content) {
     Map<String, String> properties = [:]
     content.readLines().each { line ->
@@ -191,6 +193,25 @@ printf '%s' "$(dirname "$(dirname "$java_path")")"
                         error('TARGET_MINECRAFT_VERSION is required when RUN_VERSION_UPDATE is enabled.')
                     }
 
+                    def targetBranch = targetMcVersion
+                    sh '''#!/bin/sh
+set -eu
+target_branch=''' + shellQuote(targetBranch) + '''
+if git ls-remote --exit-code --heads origin "$target_branch" >/dev/null 2>&1; then
+    echo "Using existing remote branch $target_branch for manual update."
+    git fetch origin "refs/heads/$target_branch:refs/remotes/origin/$target_branch"
+    git checkout -B "$target_branch" "refs/remotes/origin/$target_branch"
+else
+    echo "Creating new update branch $target_branch from current checkout."
+    git checkout -B "$target_branch"
+fi
+'''
+
+                    propertiesContent = readFile('gradle.properties')
+                    properties = parsePropertiesFile(propertiesContent)
+                    currentMcVersion = properties.minecraft_version ?: ''
+                    currentModVersion = properties.mod_version ?: ''
+
                     def latestLoader = sh(
                         script: '''#!/bin/sh
 set -eu
@@ -293,7 +314,6 @@ curl -fsSL https://maven.shedaniel.me/me/shedaniel/cloth/cloth-config-fabric/mav
                     def targetClothConfigVersion = latestClothConfig
                     def targetYarnMappings = latestYarnMappings
                     def targetModVersion = nextModVersion(currentModVersion, targetMcVersion)
-                    def targetBranch = targetMcVersion
 
                     def updatedProperties = propertiesContent
                     updatedProperties = replacePropertyLine(updatedProperties, 'minecraft_version', targetMcVersion)
@@ -375,7 +395,8 @@ fi
                         sh 'java -version'
                     }
 
-                    echo "Building Armor HUD branch ${params.BRANCH} for Minecraft ${releaseMetadata.target_mc_version ?: releaseMetadata.current_mc_version}..."
+                    def buildBranch = releaseMetadata.target_branch ?: params.BRANCH
+                    echo "Building Armor HUD branch ${buildBranch} for Minecraft ${releaseMetadata.target_mc_version ?: releaseMetadata.current_mc_version}..."
                     sh './gradlew clean build -x test'
                 }
             }
@@ -383,7 +404,11 @@ fi
 
         stage('Archive') {
             steps {
-                echo "Archiving built JARs for branch ${params.BRANCH}..."
+                script {
+                    def releaseMetadata = fileExists('.jenkins-release.properties') ? parsePropertiesFile(readFile('.jenkins-release.properties')) : [:]
+                    def archiveBranch = releaseMetadata.target_branch ?: params.BRANCH
+                    echo "Archiving built JARs for branch ${archiveBranch}..."
+                }
                 archiveArtifacts artifacts: 'build/libs/*.jar', fingerprint: true
             }
         }
@@ -464,6 +489,105 @@ git reset -q -- .jdk .gradle-project-cache .jenkins-release.properties gradlew |
                 def finalResult = currentBuild.currentResult ?: 'SUCCESS'
                 def attemptedVersion = releaseMetadata.target_mc_version ?: releaseMetadata.current_mc_version ?: params.TARGET_MINECRAFT_VERSION ?: 'unknown'
                 def modeLabel = shouldRunManualUpdate ? 'manual update' : 'build-only run'
+
+                if (shouldRunManualUpdate && finalResult == 'SUCCESS') {
+                    try {
+                        String githubTokenForPr = null
+                        try {
+                            withCredentials([string(credentialsId: params.GITHUB_TOKEN_CREDENTIALS_ID, variable: 'GITHUB_TOKEN')]) {
+                                githubTokenForPr = env.GITHUB_TOKEN
+                            }
+                        } catch (Exception ignored) {
+                            echo "Credential ${params.GITHUB_TOKEN_CREDENTIALS_ID} is not Secret Text. Trying Username/Password credentials for PR creation."
+                        }
+
+                        if (!githubTokenForPr) {
+                            withCredentials([usernamePassword(credentialsId: params.GITHUB_TOKEN_CREDENTIALS_ID, usernameVariable: 'GITHUB_USERNAME', passwordVariable: 'GITHUB_TOKEN')]) {
+                                githubTokenForPr = env.GITHUB_TOKEN
+                            }
+                        }
+
+                        if (!githubTokenForPr) {
+                            error("Unable to resolve a GitHub token from credentials ${params.GITHUB_TOKEN_CREDENTIALS_ID} for PR creation.")
+                        }
+
+                        def targetBranch = releaseMetadata.target_branch ?: attemptedVersion
+                        def prTitle = "chore: update Minecraft to ${attemptedVersion}"
+                        def prBody = [
+                            "Automated Jenkins update run for Armor HUD.",
+                            "",
+                            "- Minecraft: ${releaseMetadata.current_mc_version ?: 'unknown'} -> ${releaseMetadata.target_mc_version ?: attemptedVersion}",
+                            "- Mod version: ${releaseMetadata.current_mod_version ?: 'unknown'} -> ${releaseMetadata.target_mod_version ?: 'unknown'}",
+                            "- Loader: ${releaseMetadata.target_loader_version ?: 'unknown'}",
+                            "- Fabric API: ${releaseMetadata.target_fabric_version ?: 'unknown'}",
+                            "- Mod Menu: ${releaseMetadata.target_modmenu_version ?: 'unknown'}",
+                            "- Cloth Config: ${releaseMetadata.target_cloth_config_version ?: 'unknown'}",
+                            "- Mappings channel: ${releaseMetadata.target_mappings_channel ?: 'unknown'}",
+                            "- Yarn mappings: ${releaseMetadata.target_yarn_mappings ?: 'n/a'}",
+                            "",
+                            "Build: ${env.BUILD_URL}"
+                        ].join('\n')
+                        def createPrPayload = JsonOutput.toJson([
+                            title: prTitle,
+                            head: targetBranch,
+                            base: 'master',
+                            body: prBody,
+                            maintainer_can_modify: true
+                        ])
+
+                        def prResult = sh(
+                            script: '''#!/bin/sh
+set -eu
+repo=''' + shellQuote(params.GITHUB_REPOSITORY) + '''
+target_branch=''' + shellQuote(targetBranch) + '''
+token=''' + shellQuote(githubTokenForPr) + '''
+payload=''' + shellQuote(createPrPayload) + '''
+owner=$(printf '%s' "$repo" | cut -d'/' -f1)
+existing_pr_number=$(curl -fsSL \
+  -H "Authorization: Bearer $token" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/$repo/pulls?state=open&head=$owner:$target_branch&base=master" |
+  tr -d '\n' |
+  sed -n 's/.*"number":\([0-9][0-9]*\).*/\1/p' |
+  head -n 1)
+if [ -n "$existing_pr_number" ]; then
+    printf 'EXISTS:%s' "$existing_pr_number"
+    exit 0
+fi
+response_file=$(mktemp)
+http_code=$(curl -sS -o "$response_file" -w '%{http_code}' \
+  -X POST \
+  -H "Authorization: Bearer $token" \
+  -H "Accept: application/vnd.github+json" \
+  -H "Content-Type: application/json" \
+  --data-binary "$payload" \
+  "https://api.github.com/repos/$repo/pulls")
+if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+    pr_url=$(tr -d '\n' < "$response_file" | sed -n 's/.*"html_url":"\([^"]*\)".*/\1/p')
+    rm -f "$response_file"
+    printf 'CREATED:%s' "$pr_url"
+    exit 0
+fi
+error_body=$(tr -d '\n' < "$response_file")
+rm -f "$response_file"
+echo "GitHub API returned HTTP $http_code while creating PR: $error_body" >&2
+exit 1
+''',
+                            returnStdout: true
+                        ).trim()
+
+                        if (prResult.startsWith('EXISTS:')) {
+                            echo "Open PR already exists for branch ${targetBranch}: #${prResult.substring('EXISTS:'.length())}"
+                        } else if (prResult.startsWith('CREATED:')) {
+                            echo "Created PR for ${targetBranch} -> master: ${prResult.substring('CREATED:'.length())}"
+                        } else {
+                            echo "PR creation returned unexpected output: ${prResult}"
+                        }
+                    } catch (Exception prError) {
+                        currentBuild.result = 'FAILURE'
+                        echo "Failed to create PR for successful manual update: ${prError.getMessage()}"
+                    }
+                }
 
                 if (finalResult == 'SUCCESS') {
                     echo "SUCCESS ${modeLabel} completed successfully."
