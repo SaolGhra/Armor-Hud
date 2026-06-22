@@ -77,6 +77,18 @@ def parseMavenVersions(String metadataXml) {
     versions
 }
 
+def parseMavenVersioningTag(String metadataXml, String tagName) {
+    if (!metadataXml || !tagName) {
+        return ''
+    }
+
+    def matcher = metadataXml =~ /<${tagName}>([^<]+)<\/${tagName}>/
+    if (matcher.find()) {
+        return (matcher.group(1) ?: '').trim()
+    }
+    return ''
+}
+
 def configureGradleRuntime(String javaHome, String projectCacheDir) {
     if (!javaHome) {
         error('configureGradleRuntime received an empty JAVA_HOME value.')
@@ -279,8 +291,10 @@ curl -fsSL https://maven.terraformersmc.com/com/terraformersmc/modmenu/maven-met
 ''',
                         returnStdout: true
                     )
+                    def modMenuRelease = parseMavenVersioningTag(modMenuMetadata, 'release')
+                    def modMenuLatest = parseMavenVersioningTag(modMenuMetadata, 'latest')
                     def modMenuVersions = parseMavenVersions(modMenuMetadata)
-                    def latestModMenu = modMenuVersions ? modMenuVersions.last() : ''
+                    def latestModMenu = modMenuRelease ?: modMenuLatest ?: (modMenuVersions ? modMenuVersions.first() : '')
                     if (!latestModMenu) {
                         error('Unable to determine the latest Mod Menu version from Terraformers Maven metadata.')
                     }
@@ -292,6 +306,8 @@ curl -fsSL https://maven.shedaniel.me/me/shedaniel/cloth/cloth-config-fabric/mav
 ''',
                         returnStdout: true
                     )
+                    def clothRelease = parseMavenVersioningTag(clothMetadata, 'release')
+                    def clothLatest = parseMavenVersioningTag(clothMetadata, 'latest')
                     def clothVersions = parseMavenVersions(clothMetadata)
                     if (!clothVersions) {
                         error('Unable to determine Cloth Config versions from Shedaniel Maven metadata.')
@@ -299,12 +315,12 @@ curl -fsSL https://maven.shedaniel.me/me/shedaniel/cloth/cloth-config-fabric/mav
                     def exactClothPrefix = "${targetMcVersion}."
                     def fallbackVersionKey = targetMcVersion.tokenize('.').take(2).join('.')
                     def fallbackClothPrefix = fallbackVersionKey ? "${fallbackVersionKey}." : exactClothPrefix
-                    def latestClothConfig = clothVersions.findAll { it.startsWith(exactClothPrefix) }.with { it ? it.last() : null }
+                    def latestClothConfig = clothVersions.findAll { it.startsWith(exactClothPrefix) }.with { it ? it.first() : null }
                     if (!latestClothConfig && fallbackClothPrefix != exactClothPrefix) {
-                        latestClothConfig = clothVersions.findAll { it.startsWith(fallbackClothPrefix) }.with { it ? it.last() : null }
+                        latestClothConfig = clothVersions.findAll { it.startsWith(fallbackClothPrefix) }.with { it ? it.first() : null }
                     }
                     if (!latestClothConfig) {
-                        latestClothConfig = clothVersions.last()
+                        latestClothConfig = clothRelease ?: clothLatest ?: clothVersions.first()
                         echo "No Cloth Config version prefix-matching ${targetMcVersion}; using latest available ${latestClothConfig}."
                     }
 

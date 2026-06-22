@@ -49,8 +49,8 @@ dependencies {
 
     // Fabric API. This is technically optional, but you probably want it anyway.
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-    implementation "com.terraformersmc:modmenu:${project.modmenu_version}"
-    implementation "me.shedaniel.cloth:cloth-config-fabric:${project.cloth_config_version}"
+    clientImplementation "com.terraformersmc:modmenu:${project.modmenu_version}"
+    clientImplementation "me.shedaniel.cloth:cloth-config-fabric:${project.cloth_config_version}"
 }
 
 processResources {
