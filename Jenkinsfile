@@ -63,9 +63,24 @@ def shellQuote(String value) {
     return "'${value.replace("'", "'\"'\"'")}'"
 }
 
-def configureGradleJavaHome(String javaHome) {
+def parseMavenVersions(String metadataXml) {
+    def versions = []
+    def matcher = metadataXml =~ /<version>([^<]+)<\/version>/
+    matcher.each { match ->
+        def value = (match[1] ?: '').trim()
+        if (value) {
+            versions << value
+        }
+    }
+    versions
+}
+
+def configureGradleRuntime(String javaHome, String projectCacheDir) {
     if (!javaHome) {
-        error('configureGradleJavaHome received an empty JAVA_HOME value.')
+        error('configureGradleRuntime received an empty JAVA_HOME value.')
+    }
+    if (!projectCacheDir) {
+        error('configureGradleRuntime received an empty project cache directory value.')
     }
 
     env.JAVA_HOME = javaHome
@@ -73,8 +88,9 @@ def configureGradleJavaHome(String javaHome) {
 
     def existingGradleOpts = (env.GRADLE_OPTS ?: '')
         .replaceAll(/(^|\s)-Dorg\.gradle\.java\.home=\S+/, ' ')
+        .replaceAll(/(^|\s)-Dorg\.gradle\.projectcachedir=\S+/, ' ')
         .trim()
-    env.GRADLE_OPTS = "${existingGradleOpts} -Dorg.gradle.java.home=${env.JAVA_HOME}".trim()
+    env.GRADLE_OPTS = "${existingGradleOpts} -Dorg.gradle.java.home=${env.JAVA_HOME} -Dorg.gradle.projectcachedir=${projectCacheDir}".trim()
 }
 
 pipeline {
@@ -119,8 +135,10 @@ printf '%s' "$(dirname "$(dirname "$java_path")")"
 ''',
                         returnStdout: true
                     ).trim()
-                    configureGradleJavaHome(detectedJavaHome)
-                    echo "Using JAVA_HOME ${env.JAVA_HOME} for Gradle startup checks."
+                    env.GRADLE_PROJECT_CACHE_DIR = "${env.WORKSPACE}/.gradle-project-cache"
+                    sh "mkdir -p ${shellQuote(env.GRADLE_PROJECT_CACHE_DIR)}"
+                    configureGradleRuntime(detectedJavaHome, env.GRADLE_PROJECT_CACHE_DIR)
+                    echo "Using JAVA_HOME ${env.JAVA_HOME} and project cache ${env.GRADLE_PROJECT_CACHE_DIR} for Gradle startup checks."
                 }
                 echo "Running on node: ${env.NODE_NAME}"
                 sh 'chmod +x ./gradlew'
@@ -154,6 +172,8 @@ printf '%s' "$(dirname "$(dirname "$java_path")")"
                             target_branch: params.BRANCH,
                             target_loader_version: properties.loader_version ?: '',
                             target_fabric_version: properties.fabric_version ?: '',
+                            target_modmenu_version: properties.modmenu_version ?: '',
+                            target_cloth_config_version: properties.cloth_config_version ?: '',
                             target_yarn_mappings: properties.yarn_mappings ?: ''
                         ].collect { key, value -> "${key}=${value}" }.join('\n') + '\n'
 
@@ -231,8 +251,46 @@ tail -n 1
                         error("No Fabric API version published yet for Minecraft ${targetMcVersion}.")
                     }
 
+                    def modMenuMetadata = sh(
+                        script: '''#!/bin/sh
+set -eu
+curl -fsSL https://maven.terraformersmc.com/com/terraformersmc/modmenu/maven-metadata.xml
+''',
+                        returnStdout: true
+                    )
+                    def modMenuVersions = parseMavenVersions(modMenuMetadata)
+                    def latestModMenu = modMenuVersions ? modMenuVersions.last() : ''
+                    if (!latestModMenu) {
+                        error('Unable to determine the latest Mod Menu version from Terraformers Maven metadata.')
+                    }
+
+                    def clothMetadata = sh(
+                        script: '''#!/bin/sh
+set -eu
+curl -fsSL https://maven.shedaniel.me/me/shedaniel/cloth/cloth-config-fabric/maven-metadata.xml
+''',
+                        returnStdout: true
+                    )
+                    def clothVersions = parseMavenVersions(clothMetadata)
+                    if (!clothVersions) {
+                        error('Unable to determine Cloth Config versions from Shedaniel Maven metadata.')
+                    }
+                    def exactClothPrefix = "${targetMcVersion}."
+                    def fallbackVersionKey = targetMcVersion.tokenize('.').take(2).join('.')
+                    def fallbackClothPrefix = fallbackVersionKey ? "${fallbackVersionKey}." : exactClothPrefix
+                    def latestClothConfig = clothVersions.findAll { it.startsWith(exactClothPrefix) }.with { it ? it.last() : null }
+                    if (!latestClothConfig && fallbackClothPrefix != exactClothPrefix) {
+                        latestClothConfig = clothVersions.findAll { it.startsWith(fallbackClothPrefix) }.with { it ? it.last() : null }
+                    }
+                    if (!latestClothConfig) {
+                        latestClothConfig = clothVersions.last()
+                        echo "No Cloth Config version prefix-matching ${targetMcVersion}; using latest available ${latestClothConfig}."
+                    }
+
                     def targetLoaderVersion = latestLoader
                     def targetFabricVersion = latestFabricApi
+                    def targetModMenuVersion = latestModMenu
+                    def targetClothConfigVersion = latestClothConfig
                     def targetYarnMappings = latestYarnMappings
                     def targetModVersion = nextModVersion(currentModVersion, targetMcVersion)
                     def targetBranch = targetMcVersion
@@ -245,6 +303,8 @@ tail -n 1
                     }
                     updatedProperties = replacePropertyLine(updatedProperties, 'loader_version', targetLoaderVersion)
                     updatedProperties = replacePropertyLine(updatedProperties, 'fabric_version', targetFabricVersion)
+                    updatedProperties = replacePropertyLine(updatedProperties, 'modmenu_version', targetModMenuVersion)
+                    updatedProperties = replacePropertyLine(updatedProperties, 'cloth_config_version', targetClothConfigVersion)
                     updatedProperties = replacePropertyLine(updatedProperties, 'mod_version', targetModVersion)
                     writeFile file: 'gradle.properties', text: updatedProperties
 
@@ -258,12 +318,14 @@ tail -n 1
                         target_mappings_channel: targetMappingsChannel,
                         target_loader_version: targetLoaderVersion,
                         target_fabric_version: targetFabricVersion,
+                        target_modmenu_version: targetModMenuVersion,
+                        target_cloth_config_version: targetClothConfigVersion,
                         target_yarn_mappings: targetYarnMappings
                     ].collect { key, value -> "${key}=${value}" }.join('\n') + '\n'
 
                     currentBuild.description = "Manual update ${currentMcVersion} -> ${targetMcVersion} (${targetBranch})"
                     def mappingsLabel = targetMappingsChannel == 'yarn' ? "Yarn ${targetYarnMappings}" : 'non-obfuscated mappings mode'
-                    echo "Prepared manual update ${currentMcVersion} -> ${targetMcVersion} for branch ${targetBranch} using ${mappingsLabel}, loader ${targetLoaderVersion}, and Fabric API ${targetFabricVersion}."
+                    echo "Prepared manual update ${currentMcVersion} -> ${targetMcVersion} for branch ${targetBranch} using ${mappingsLabel}, loader ${targetLoaderVersion}, Fabric API ${targetFabricVersion}, Mod Menu ${targetModMenuVersion}, and Cloth Config ${targetClothConfigVersion}."
                 }
             }
         }
@@ -307,7 +369,9 @@ if [ ! -x "$JDK_DIR/bin/java" ]; then
     mv "$EXTRACTED_DIR" "$JDK_DIR"
 fi
 '''
-                        configureGradleJavaHome("${env.WORKSPACE}/.jdk/temurin-25")
+                        def projectCacheDir = env.GRADLE_PROJECT_CACHE_DIR ?: "${env.WORKSPACE}/.gradle-project-cache"
+                        sh "mkdir -p ${shellQuote(projectCacheDir)}"
+                        configureGradleRuntime("${env.WORKSPACE}/.jdk/temurin-25", projectCacheDir)
                         sh 'java -version'
                     }
 
