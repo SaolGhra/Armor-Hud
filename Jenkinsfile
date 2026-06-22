@@ -420,8 +420,19 @@ fi
 
                         sh 'git config user.name "jenkins"'
                         sh 'git config user.email "jenkins@localhost"'
-                        sh 'printf "\n.jdk/\n" >> .git/info/exclude'
-                        sh 'git add -A'
+                        sh '''#!/bin/sh
+set -eu
+mkdir -p .git/info
+touch .git/info/exclude
+for pattern in '.jdk/' '.gradle-project-cache/' '.jenkins-release.properties'; do
+    if ! grep -qxF "$pattern" .git/info/exclude; then
+        printf '%s\n' "$pattern" >> .git/info/exclude
+    fi
+done
+git checkout -- gradlew || true
+git add -A
+git reset -q -- .jdk .gradle-project-cache .jenkins-release.properties gradlew || true
+'''
 
                         def hasStagedChanges = sh(script: 'git diff --cached --quiet', returnStatus: true) != 0
                         if (hasStagedChanges) {
@@ -435,7 +446,8 @@ fi
                             sh "git commit -m ${shellQuote(commitMessage)}"
 
                             def remoteUrl = "https://x-access-token:${githubToken}@github.com/${params.GITHUB_REPOSITORY}.git"
-                            def branchRefSpec = "HEAD:${targetBranch}"
+                            def qualifiedTargetBranch = targetBranch.startsWith('refs/heads/') ? targetBranch : "refs/heads/${targetBranch}"
+                            def branchRefSpec = "HEAD:${qualifiedTargetBranch}"
                             sh "git remote set-url origin ${shellQuote(remoteUrl)}"
                             sh "git push origin ${shellQuote(branchRefSpec)}"
 
