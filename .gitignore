@@ -116,3 +116,10 @@ run/
 
 # Avoid ignoring Gradle wrapper jar file (.jar files are usually ignored)
 !gradle-wrapper.jar
+
+# Stale Loom/Gradle caches (not used by the Stonecutter build)
+.gradle-project-cache/
+remappedSrc/
+**/stonecutter-cache/
+.claude/
+scripts/

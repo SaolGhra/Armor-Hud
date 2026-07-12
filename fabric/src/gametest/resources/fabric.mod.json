@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "armor_hud_test",
+  "version": "1.0.0",
+  "name": "Armor HUD Test",
+  "environment": "client",
+  "entrypoints": {
+    "fabric-client-gametest": ["com.saolghra.armor_hud.fabric.gametest.ArmorHudClientGameTest"]
+  },
+  "depends": {
+    "armor_hud": "*"
+  }
+}
