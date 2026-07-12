@@ -4,6 +4,7 @@ plugins {
     id("dev.architectury.loom")
     id("architectury-plugin")
     id("com.github.johnrengelman.shadow")
+    id("me.modmuss50.mod-publish-plugin")
 }
 
 val loader = prop("loom.platform")!!
@@ -114,4 +115,21 @@ tasks.register<Copy>("buildAndCollect") {
     from(tasks.remapJar.get().archiveFile, tasks.remapSourcesJar.get().archiveFile)
     into(rootProject.layout.buildDirectory.file("libs/${mod.version}/$loader"))
     dependsOn("build")
+}
+
+// Modrinth publishing. Runs as a dry-run unless MODRINTH_TOKEN is set (so CI can rehearse safely).
+publishMods {
+    val hasToken = providers.environmentVariable("MODRINTH_TOKEN").isPresent
+    dryRun = !hasToken
+    file = tasks.remapJar.get().archiveFile
+    type = STABLE
+    displayName = "Armor HUD ${mod.version} - ${common.mod.prop("mc_title")} ($loader)"
+    version = "${mod.version}+$minecraft-$loader"
+    changelog = "See https://github.com/SaolGhra/Armor-Hud/releases"
+    modLoaders.add(loader)
+    modrinth {
+        projectId = "armor-hud"
+        accessToken = providers.environmentVariable("MODRINTH_TOKEN").orElse("")
+        minecraftVersions.addAll(common.mod.prop("mc_targets").split(" "))
+    }
 }
