@@ -23,9 +23,18 @@ public class ArmorHudOverlay {
     private final ArmorHudConfig config = ArmorHudConfig.getInstance();
 
     private static final ResourceLocation HOTBAR_OFFHAND_LEFT =
-            ResourceLocation.parse("minecraft:textures/gui/sprites/hud/hotbar_offhand_left.png");
+            id("minecraft:textures/gui/sprites/hud/hotbar_offhand_left.png");
     private static final ResourceLocation EXCLAMATION_MARKS_TEXTURE =
-            ResourceLocation.parse("armor_hud:textures/gui/exclamation_marks_flash.png");
+            id("armor_hud:textures/gui/exclamation_marks_flash.png");
+
+    /** {@code ResourceLocation.parse} was added in 1.21; older versions use the constructor. */
+    private static ResourceLocation id(String s) {
+        //? if >=1.21 {
+        return ResourceLocation.parse(s);
+        //?} else {
+        /*return new ResourceLocation(s);*/
+        //?}
+    }
 
     // hotbar_offhand_left.png is 29x24; we trim 6px off the right so the slot reads square-ish.
     private static final int SPRITE_TEX_WIDTH = 29;

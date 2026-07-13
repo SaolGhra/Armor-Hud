@@ -7,10 +7,18 @@ plugins {
 }
 stonecutter active "1.21.5" /* [SC] DO NOT EDIT */
 
-// Builds every version into `build/libs/{mod.version}/{loader}`
+// Builds every version into `build/libs/{mod.version}/{loader}`. Use chiseled builds, NOT
+// `:loader:version:build` directly — Stonecutter only generates a version's source when it is the
+// active build target, so a direct node build produces an EMPTY jar for any non-active version.
 stonecutter registerChiseled tasks.register("chiseledBuild", stonecutter.chiseled) {
     group = "project"
     ofTask("buildAndCollect")
+}
+
+// Publishes every version to Modrinth (dry-run unless MODRINTH_TOKEN is set).
+stonecutter registerChiseled tasks.register("chiseledPublish", stonecutter.chiseled) {
+    group = "project"
+    ofTask("publishMods")
 }
 
 // Builds loader-specific versions into `build/libs/{mod.version}/{loader}`

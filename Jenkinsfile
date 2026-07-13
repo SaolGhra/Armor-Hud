@@ -13,8 +13,6 @@ pipeline {
                 description: 'Publish the built jars to Modrinth (needs the modrinth-token credential).')
         booleanParam(name: 'RUN_SCREENSHOT_TESTS', defaultValue: false,
                 description: 'Run the Fabric Client GameTest screenshot tests (needs a display / Xvfb).')
-        string(name: 'ONLY_VERSION', defaultValue: '',
-                description: 'Optional: build just this MC version (e.g. 1.21.5) instead of the whole matrix.')
         string(name: 'NOTIFY_URL', defaultValue: 'https://notify.saolghra.co.uk/builds',
                 description: 'Webhook pinged on success/failure.')
     }
@@ -29,10 +27,6 @@ pipeline {
     environment {
         GRADLE_USER_HOME = "${WORKSPACE}/.gradle"
         _JAVA_OPTIONS = '-Xmx3G -Xms512M'
-        // The matrix. Add versions here as they are validated (see the project docs).
-        FABRIC_VERSIONS   = '1.20.1 1.21.1 1.21.5 1.21.11'
-        NEOFORGE_VERSIONS = '1.21.1 1.21.5 1.21.11'
-        FORGE_VERSIONS    = ''            // 1.20.1 once the forge module lands
     }
 
     stages {
@@ -61,15 +55,9 @@ pipeline {
                     set -e
                     export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
                     export PATH="$JAVA_HOME/bin:$PATH"
-
-                    build_node() {  # $1 = loader, $2 = mc
-                        echo "== building :$1:$2 =="
-                        ./gradlew ":$1:$2:build" -x runGameTest -x runClientGameTest --stacktrace
-                    }
-
-                    for v in ${ONLY_VERSION:-$FABRIC_VERSIONS};   do case " $FABRIC_VERSIONS " in *" $v "*) build_node fabric "$v";; esac; done
-                    for v in ${ONLY_VERSION:-$NEOFORGE_VERSIONS}; do case " $NEOFORGE_VERSIONS " in *" $v "*) build_node neoforge "$v";; esac; done
-                    for v in ${ONLY_VERSION:-$FORGE_VERSIONS};    do case " $FORGE_VERSIONS " in *" $v "*) build_node forge "$v";; esac; done
+                    # chiseledBuild iterates the whole version x loader matrix from settings.gradle.kts,
+                    # generating each version's source (a direct :loader:version:build would be empty).
+                    ./gradlew chiseledBuild -x runGameTest -x runClientGameTest --stacktrace
                 '''
             }
         }
@@ -104,13 +92,8 @@ pipeline {
 
         stage('Collect jars') {
             steps {
-                sh '''
-                    set -e
-                    mkdir -p dist
-                    find . -path '*/build/libs/*.jar' ! -name '*-dev*.jar' ! -name '*-sources.jar' -exec cp {} dist/ \\;
-                    ls -la dist/
-                '''
-                archiveArtifacts artifacts: 'dist/*.jar', fingerprint: true
+                // chiseledBuild collects remapped jars into build/libs/<mod.version>/<loader>/.
+                archiveArtifacts artifacts: 'build/libs/**/*.jar', fingerprint: true, excludes: '**/*-sources.jar'
             }
         }
 
@@ -122,10 +105,8 @@ pipeline {
                         set -e
                         export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
                         export PATH="$JAVA_HOME/bin:$PATH"
-                        publish_node() { echo "== publishing :$1:$2 =="; ./gradlew ":$1:$2:publishModrinth" --stacktrace; }
-                        for v in ${ONLY_VERSION:-$FABRIC_VERSIONS};   do case " $FABRIC_VERSIONS " in *" $v "*) publish_node fabric "$v";; esac; done
-                        for v in ${ONLY_VERSION:-$NEOFORGE_VERSIONS}; do case " $NEOFORGE_VERSIONS " in *" $v "*) publish_node neoforge "$v";; esac; done
-                        for v in ${ONLY_VERSION:-$FORGE_VERSIONS};    do case " $FORGE_VERSIONS " in *" $v "*) publish_node forge "$v";; esac; done
+                        # chiseledPublish runs publishMods for every version (each with its source active).
+                        ./gradlew chiseledPublish --stacktrace
                     '''
                 }
             }
