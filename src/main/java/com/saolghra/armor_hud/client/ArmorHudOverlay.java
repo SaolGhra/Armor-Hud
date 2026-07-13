@@ -69,8 +69,8 @@ public class ArmorHudOverlay {
             ItemStack armorItem = armorItems[slot];
             if (armorItem.isEmpty()) continue;
 
-            int drawX = slotX(vertical, xOffset, slot, armorItems.length, slotStride);
-            int drawY = slotY(vertical, yOffset, boxSize, slot, slotStride);
+            int drawX = ArmorHudMath.slotX(vertical, xOffset, slot, armorItems.length, slotStride);
+            int drawY = ArmorHudMath.slotY(vertical, yOffset, boxSize, slot, slotStride);
 
             drawSlotBackground(graphics, drawX, drawY, boxSize, boxSize);
             graphics.renderItem(armorItem, drawX + (boxSize - 16) / 2, drawY + (boxSize - 16) / 2);
@@ -81,8 +81,8 @@ public class ArmorHudOverlay {
             ItemStack armorItem = armorItems[slot];
             if (armorItem.isEmpty()) continue;
 
-            int drawX = slotX(vertical, xOffset, slot, armorItems.length, slotStride);
-            int drawY = slotY(vertical, yOffset, boxSize, slot, slotStride);
+            int drawX = ArmorHudMath.slotX(vertical, xOffset, slot, armorItems.length, slotStride);
+            int drawY = ArmorHudMath.slotY(vertical, yOffset, boxSize, slot, slotStride);
 
             if (config.isShowDurabilityPoints()) {
                 drawDurabilityPoints(graphics, drawX, drawY, boxSize, armorItem);
@@ -94,14 +94,6 @@ public class ArmorHudOverlay {
                 drawExclamationMark(graphics, drawX, drawY);
             }
         }
-    }
-
-    private static int slotX(boolean vertical, int xOffset, int slot, int count, int slotStride) {
-        return vertical ? xOffset : xOffset + ((count - 1 - slot) * slotStride);
-    }
-
-    private static int slotY(boolean vertical, int yOffset, int boxSize, int slot, int slotStride) {
-        return vertical ? (yOffset - boxSize - (slot * slotStride)) : yOffset;
     }
 
     private void drawDurabilityPoints(GuiGraphics graphics, int boxX, int boxY, int boxSize, ItemStack item) {

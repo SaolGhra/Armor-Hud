@@ -14,7 +14,8 @@
   "icon": "assets/armor_hud/logo/ArmorHUDLogo.png",
   "environment": "client",
   "entrypoints": {
-    "client": ["com.saolghra.armor_hud.fabric.ArmorHudFabric"]
+    "client": ["com.saolghra.armor_hud.fabric.ArmorHudFabric"],
+    "modmenu": ["com.saolghra.armor_hud.fabric.config.ModMenuIntegration"]
   },
   "depends": {
     "fabricloader": ">=0.15.0",

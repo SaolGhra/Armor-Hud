@@ -1,0 +1,13 @@
+{
+  "armor_hud.config.title": "Armor HUD Configuration",
+  "armor_hud.config.position": "X: %s  Y: %s",
+  "armor_hud.config.visible": "HUD Visible",
+  "armor_hud.config.exclamation_marks": "Show Warning Marks",
+  "armor_hud.config.vertical": "Vertical Layout",
+  "armor_hud.config.durability_points": "Show Durability Points",
+  "armor_hud.config.reset": "Reset to Defaults",
+  "armor_hud.config.interactive.enter": "Interactive Positioning",
+  "armor_hud.config.interactive.exit": "Exit Interactive Mode",
+  "armor_hud.config.interactive.hint": "Click and drag the armor HUD to position it",
+  "armor_hud.config.interactive.dragging": "Dragging..."
+}

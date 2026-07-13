@@ -42,4 +42,26 @@ class ArmorHudMathTest {
             assertEquals(0xFF, (ArmorHudMath.durabilityColor(r) >>> 24) & 0xFF);
         }
     }
+
+    @Test
+    void slotX_horizontalLaysSlotsRightToLeft() {
+        // count=4, stride=24, origin=100: slot 0 is furthest right, slot 3 at the origin.
+        assertEquals(100 + 3 * 24, ArmorHudMath.slotX(false, 100, 0, 4, 24));
+        assertEquals(100 + 2 * 24, ArmorHudMath.slotX(false, 100, 1, 4, 24));
+        assertEquals(100, ArmorHudMath.slotX(false, 100, 3, 4, 24));
+    }
+
+    @Test
+    void slotX_verticalPinsToSingleColumn() {
+        for (int slot = 0; slot < 4; slot++) {
+            assertEquals(100, ArmorHudMath.slotX(true, 100, slot, 4, 24));
+        }
+    }
+
+    @Test
+    void slotY_horizontalIsFlatVerticalStacksUpward() {
+        assertEquals(200, ArmorHudMath.slotY(false, 200, 22, 2, 24)); // horizontal: constant row
+        assertEquals(200 - 22, ArmorHudMath.slotY(true, 200, 22, 0, 24));       // first box above origin
+        assertEquals(200 - 22 - 24, ArmorHudMath.slotY(true, 200, 22, 1, 24));  // next box a stride higher
+    }
 }

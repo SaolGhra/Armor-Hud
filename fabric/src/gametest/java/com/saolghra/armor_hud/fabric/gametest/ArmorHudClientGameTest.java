@@ -1,5 +1,7 @@
 package com.saolghra.armor_hud.fabric.gametest;
 
+import com.saolghra.armor_hud.client.config.ArmorHudConfigScreen;
+
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
@@ -35,6 +37,17 @@ public class ArmorHudClientGameTest implements FabricClientGameTest {
 
             // HUD visible with durability bars + low-durability warning.
             context.takeScreenshot("armor_hud-equipped");
+
+            // Config screen (shared by both loaders): open it and capture the default layout.
+            context.setScreen(() -> new ArmorHudConfigScreen(null));
+            context.waitForScreen(ArmorHudConfigScreen.class);
+            context.waitTicks(5);
+            context.takeScreenshot("armor_hud-config");
+
+            // Interactive positioning mode: shows the live drag preview + hint text.
+            context.tryClickScreenButton("Interactive Positioning");
+            context.waitTicks(5);
+            context.takeScreenshot("armor_hud-config-interactive");
         }
     }
 }

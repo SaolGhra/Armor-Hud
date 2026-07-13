@@ -25,6 +25,20 @@ public final class ArmorHudMath {
         return maxDamage > 0 && damage > 0 && durabilityRatio(maxDamage, damage) < threshold;
     }
 
+    /**
+     * X pixel of armor slot {@code slot} (0 = first drawn). Horizontal lays slots right-to-left from
+     * {@code xOffset}; vertical stacks them at a single column. Pure layout maths shared by the HUD
+     * overlay and the config-screen preview so the two can never drift.
+     */
+    public static int slotX(boolean vertical, int xOffset, int slot, int count, int slotStride) {
+        return vertical ? xOffset : xOffset + ((count - 1 - slot) * slotStride);
+    }
+
+    /** Y pixel of armor slot {@code slot}; vertical stacks upward from {@code yOffset}. */
+    public static int slotY(boolean vertical, int yOffset, int boxSize, int slot, int slotStride) {
+        return vertical ? (yOffset - boxSize - (slot * slotStride)) : yOffset;
+    }
+
     /** Fully-opaque ARGB colour for a durability ratio: red (0) → yellow (0.5) → green (1). */
     public static int durabilityColor(float ratio) {
         float clamped = Math.max(0f, Math.min(1f, ratio));

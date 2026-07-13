@@ -39,7 +39,7 @@ configurations {
 }
 
 repositories {
-    maven("https://maven.terraformersmc.com/")
+    maven("https://maven.terraformersmc.com/releases")
 }
 
 dependencies {
@@ -47,6 +47,8 @@ dependencies {
     mappings(loom.officialMojangMappings())
     modImplementation("net.fabricmc:fabric-loader:${common.mod.dep("fabric_loader")}")
     modImplementation("net.fabricmc.fabric-api:fabric-api:${common.mod.dep("fabric_api")}")
+    // Optional: provides the "Config" button in the mod list. Not bundled; users install it separately.
+    modImplementation("com.terraformersmc:modmenu:${common.mod.dep("modmenu")}")
 
     commonBundle(project(common.path, "namedElements")) { isTransitive = false }
     shadowBundle(project(common.path, "transformProductionFabric")) { isTransitive = false }
