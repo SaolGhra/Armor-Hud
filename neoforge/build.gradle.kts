@@ -98,8 +98,22 @@ tasks.remapJar {
 // Require the NeoForge line this jar was actually built against: e.g. loader 21.0.167 -> "[21.0,)",
 // 21.9.16-beta -> "[21.9,)". A hardcoded range would (wrongly) reject the jar on 1.21/1.20.6 whose
 // NeoForge is <21.1.
-val neoforgeRange = "[" +
-    common.mod.dep("neoforge_loader").substringBefore("-").split(".").take(2).joinToString(".") + ",)"
+val neoforgeParts = common.mod.dep("neoforge_loader").substringBefore("-").split(".")
+val neoforgeRange = "[" + neoforgeParts.take(2).joinToString(".") + ",)"
+
+// NeoForge renamed the mod manifest META-INF/mods.toml -> META-INF/neoforge.mods.toml at 20.5. On
+// 20.2-20.4 the loader only reads the OLD name, so shipping neoforge.mods.toml there loads NO mod (the
+// HUD silently never registers). Emit the legacy filename for those nodes. (The TOML *content* is the
+// same javafml schema both eras understand — only the filename differs.)
+val nfMajor = neoforgeParts[0].toInt()
+val nfMinor = neoforgeParts.getOrElse(1) { "0" }.toInt()
+val legacyManifest = nfMajor < 20 || (nfMajor == 20 && nfMinor < 5)   // filename flipped at 20.5
+
+// The dependency declaration flipped a version earlier, at 20.4: NeoForge 20.2/20.3 use the old Forge
+// schema `mandatory = true`, and reject a block that has `type` but no `mandatory` (InvalidModFileException
+// "Missing required field mandatory"); 20.4+ use `type = "required"`. Emit the era-correct field.
+val legacyDeps = nfMajor < 20 || (nfMajor == 20 && nfMinor < 4)
+val requiredField = if (legacyDeps) "mandatory = true" else "type = \"required\""
 
 tasks.processResources {
     properties(listOf("META-INF/neoforge.mods.toml", "pack.mcmeta"),
@@ -107,8 +121,12 @@ tasks.processResources {
         "name" to mod.name,
         "version" to mod.version,
         "minecraft" to common.mod.prop("mc_dep_forgelike"),
-        "neoforge" to neoforgeRange
+        "neoforge" to neoforgeRange,
+        "required" to requiredField
     )
+    if (legacyManifest) {
+        rename("""neoforge\.mods\.toml""", "mods.toml")
+    }
 }
 
 tasks.build {

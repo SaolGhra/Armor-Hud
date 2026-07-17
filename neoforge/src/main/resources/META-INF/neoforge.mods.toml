@@ -14,14 +14,14 @@ displayURL = "https://modrinth.com/mod/armor-hud"
 
 [[dependencies.${id}]]
 modId = "neoforge"
-type = "required"
+${required}
 versionRange = "${neoforge}"
 ordering = "NONE"
 side = "CLIENT"
 
 [[dependencies.${id}]]
 modId = "minecraft"
-type = "required"
+${required}
 versionRange = "${minecraft}"
 ordering = "NONE"
 side = "CLIENT"
