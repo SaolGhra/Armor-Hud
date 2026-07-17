@@ -2,8 +2,14 @@
 // Modrinth. Replaces the old single-version "bump gradle.properties" pipeline: with the monorepo,
 // every supported Minecraft version is a Gradle node, so CI just iterates the matrix.
 //
-// See the project docs for why the toolchain is pinned the way it is. 26.x is not in the
-// matrix yet (unobfuscated — see the project docs).
+// See the project docs for why the toolchain is pinned the way it is.
+//
+// No SNAPSHOT parameter yet, deliberately: snapshots are currently on the 26.3 line, and the whole
+// 26.x line is unbuildable because architectury-loom has no unobfuscated/no-remap support (26.1+ ships
+// no Mojang mappings and no Fabric intermediary — see the project docs). A snapshot build
+// would fail for that reason alone, so it is gated on 26.x support landing. When it does, add a
+// TARGET_MINECRAFT_VERSION param that writes versions/<mc>/gradle.properties and appends the version
+// in settings.gradle.kts before running chiseledBuild.
 
 pipeline {
     agent { label 'linux' }
