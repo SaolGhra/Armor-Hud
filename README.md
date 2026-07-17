@@ -1,36 +1,89 @@
-# Armor HUD Mod
+# Armor HUD
 
-Welcome to the **Armor HUD Mod** repository! Created by [SaolGhra](https://github.com/SaolGhra), this mod enhances Minecraft by providing a clear and intuitive armor HUD.
+A lightweight, client-side Minecraft mod that shows your armour next to the hotbar with durability
+bars and a low-durability warning. Created by [SaolGhra](https://github.com/SaolGhra) —
+[available on Modrinth](https://modrinth.com/mod/armor-hud).
 
-## Overview
-
-The Armor HUD Mod adds a visual overlay to Minecraft that displays your armor's condition with distinct icons and color-coded durability bars. This makes it easier to keep track of your armor’s health during gameplay.
+Client-side only: it does **not** need to be installed on the server, and it has no mixins.
 
 ## Features
 
-- **Visible Armor HUD:** Displays each piece of armor with clear icons.
-- **Durability Bars:** Shows armor durability with color coding:
-  - **Green:** High durability (above 75%)
-  - **Yellow:** Moderate durability (25%-75%)
-  - **Red:** Low durability (below 25%)
-  - **Black:** Lost durability
+- **Armour slots by the hotbar** — helmet, chestplate, leggings and boots, each on a vanilla-style slot.
+- **Durability bar** with a smooth colour gradient from green (full) through yellow (half) to red
+  (nearly broken), or an exact **durability number** instead if you prefer.
+- **Low-durability warning** — a bobbing `!` icon appears once a piece drops below 20% durability
+  (toggleable in-game; the threshold itself is editable in the config file).
+- **Position it anywhere** — drag the HUD where you want it, or lay the slots out vertically.
+- Hides with the rest of the HUD when you press F1.
+
+## Supported versions
+
+| Loader | Minecraft |
+|---|---|
+| **Fabric** | 1.20, 1.20.1, 1.20.2, 1.20.3, 1.20.4, 1.20.5, 1.20.6, 1.21, 1.21.1, 1.21.2, 1.21.3, 1.21.4, 1.21.5, 1.21.6, 1.21.7, 1.21.8, 1.21.9, 1.21.10, 1.21.11 |
+| **NeoForge** | 1.20.6, 1.21, 1.21.1, 1.21.3, 1.21.4, 1.21.5, 1.21.8, 1.21.10, 1.21.11 |
+| **Forge** | 1.20.1 |
+
+NeoForge is listed only where it has a stable release (21.2/21.6/21.7 and 20.5 never left beta) and
+uses the modern entrypoint API. Forge is 1.20.1-only — it is legacy and binary-incompatible with
+NeoForge on 1.21+.
+
+**Minecraft 26.x**: builds for 26.x are published from the previous branch for now. 26.1 is the first
+fully unobfuscated Minecraft release, and the multi-loader build tooling (architectury-loom) has not
+yet shipped support for it — see the project docs.
+
+## Configuration
+
+All settings are saved to `config/armor_hud.json`, and there is a settings screen with a
+drag-to-position mode:
+
+- **Fabric** — install [Mod Menu](https://modrinth.com/mod/modmenu) (optional), then
+  *Mods → Armor HUD → Config*.
+- **NeoForge / Forge** — *Mods → Armor HUD → Config* (built in, no extra mod needed).
+
+In the screen, hit **Interactive Positioning** and drag the HUD preview to move it; the X/Y offsets
+update live and save automatically.
 
 ## Installation
 
-1. Download the latest mod release from the [releases page](https://github.com/SaolGhra/Armor-Hud/releases).
-2. Place the mod file into the `mods` folder of your Minecraft installation.
-3. Launch Minecraft to see the new armor HUD.
+1. Install Fabric, NeoForge, or Forge for your Minecraft version.
+2. Download the matching jar from [Modrinth](https://modrinth.com/mod/armor-hud) or the
+   [releases page](https://github.com/SaolGhra/Armor-Hud/releases).
+3. Drop it into your `mods` folder. On Fabric you also need
+   [Fabric API](https://modrinth.com/mod/fabric-api).
+
+## Building
+
+The repo is a [Stonecutter](https://stonecutter.kikugie.dev/) + [Architectury Loom](https://github.com/architectury/architectury-loom)
+monorepo: one shared source tree, with per-version differences handled by version-guarded comments.
+Build every version and loader in one go (requires **JDK 21**):
+
+```bash
+./gradlew chiseledBuild -x runGameTest -x runClientGameTest
+```
+
+Jars land in `build/libs/<version>/<loader>/`. Build **only** through the chiseled tasks — a direct
+`:fabric:<mc>:build` silently produces an empty jar for any version that isn't the active one.
+
+Other useful tasks:
+
+```bash
+./gradlew :1.21.5:test                      # unit tests (pure logic, no game launch)
+./gradlew :fabric:1.21.5:runClientGameTest  # screenshot tests (Fabric >=1.21.5, needs a display)
+```
+
+Contributor notes — architecture, the version-guard table, and the testing model — live in
+the project docs.
 
 ## Contributing
 
-Contributions are welcome! If you have suggestions, bug reports, or would like to contribute code, please open an issue or submit a pull request.
+Contributions are welcome. Please open an issue or a pull request. If you're adding a Minecraft
+version, follow the project docs.
 
 ## Support
 
-For any issues or questions, please visit the [issues page](https://github.com/SaolGhra/Armor-Hud/issues) or contact [SaolGhra](https://github.com/SaolGhra).
+Questions and bug reports: the [issues page](https://github.com/SaolGhra/Armor-Hud/issues).
 
 ## License
 
-This mod is licensed under the [MIT License](LICENSE.txt).
-
-Thank you for using the Armor HUD Mod!
+Licensed under the [MIT License](LICENSE.txt).
