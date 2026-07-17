@@ -6,6 +6,8 @@ import com.saolghra.armor_hud.config.ArmorHudConfig;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
+//? if >=1.21.9
+/*import net.minecraft.client.input.MouseButtonEvent;*/
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -15,10 +17,11 @@ import net.minecraft.world.item.Items;
  * ({@code ModMenuIntegration}); NeoForge registers it as its {@code IConfigScreenFactory}. Because
  * both loaders share this one class, the config UI stays identical across them.
  *
- * <p>It is written against the classic {@code GuiGraphics}/{@code render}/{@code mouseClicked(double,
- * double,int)} API, which is stable across the whole 1.20.1&ndash;1.21.5 matrix, so it needs no
- * Stonecutter guards today. When the input/render-state API changes (1.21.6+ {@code MouseButtonEvent}
- * and the 26.x {@code extractRenderState} split), guard the affected overrides here.
+ * <p>Rendering uses the classic {@code GuiGraphics}/{@code render} API, which is stable across the
+ * whole 1.20&ndash;1.21.11 matrix. The only version-sensitive part is mouse input: 1.21.9 replaced the
+ * {@code (double,double,int)} overloads with {@code MouseButtonEvent}, so the drag logic lives in
+ * version-agnostic helpers and only the thin overrides are guarded. Guard the render path here too
+ * when the 26.x {@code extractRenderState} split lands.
  */
 public class ArmorHudConfigScreen extends Screen {
     private static final int BUTTON_WIDTH = 220;
@@ -134,8 +137,13 @@ public class ArmorHudConfigScreen extends Screen {
         }
     }
 
-    @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    // --- Drag handling -------------------------------------------------------------------------
+    // The Screen mouse API changed in 1.21.9: the (double,double,int) overloads became
+    // MouseButtonEvent-based. The actual drag logic lives in these three version-agnostic helpers,
+    // so only the thin overrides below need a Stonecutter guard. Each returns true if it consumed
+    // the event.
+
+    private boolean beginDrag(double mouseX, double mouseY, int button) {
         if (interactiveMode && button == 0 && isWithinHud(mouseX, mouseY)) {
             dragging = true;
             dragStartX = (int) mouseX;
@@ -144,27 +152,57 @@ public class ArmorHudConfigScreen extends Screen {
             initialConfigY = config.getYOffset();
             return true;
         }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return false;
     }
 
-    @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+    private boolean endDrag(int button) {
         if (dragging && button == 0) {
             dragging = false;
             return true;
         }
-        return super.mouseReleased(mouseX, mouseY, button);
+        return false;
     }
 
-    @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+    private boolean moveDrag(double mouseX, double mouseY) {
         if (dragging && interactiveMode) {
             config.setXOffset(initialConfigX + (int) mouseX - dragStartX);
             config.setYOffset(initialConfigY + (int) mouseY - dragStartY);
             return true;
         }
-        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+        return false;
     }
+
+    //? if >=1.21.9 {
+    /*@Override
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        return beginDrag(event.x(), event.y(), event.button()) || super.mouseClicked(event, doubleClick);
+    }
+
+    @Override
+    public boolean mouseReleased(MouseButtonEvent event) {
+        return endDrag(event.button()) || super.mouseReleased(event);
+    }
+
+    @Override
+    public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
+        return moveDrag(event.x(), event.y()) || super.mouseDragged(event, dragX, dragY);
+    }
+    *///?} else {
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        return beginDrag(mouseX, mouseY, button) || super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        return endDrag(button) || super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        return moveDrag(mouseX, mouseY) || super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+    //?}
 
     private int hudOriginX() {
         return this.width / 2 + config.getXOffset();

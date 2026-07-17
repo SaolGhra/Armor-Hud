@@ -6,7 +6,13 @@ import com.saolghra.armor_hud.config.ArmorHudConfig;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
+// 1.21.11 renamed ResourceLocation -> Identifier (same package) as part of Mojang's 26.x
+// unobfuscation prep. Only the name changed; `parse` still exists.
+//? if >=1.21.11 {
+/*import net.minecraft.resources.Identifier;
+*///?} else {
 import net.minecraft.resources.ResourceLocation;
+//?}
 import net.minecraft.world.item.ItemStack;
 //? if >=1.21.6 {
 /*import net.minecraft.client.renderer.RenderPipelines;
@@ -31,17 +37,32 @@ public class ArmorHudOverlay {
      * {@code gui/widgets.png} atlas, so blitting the sprite path there renders a missing texture.
      * {@code <1.20.5} therefore falls back to our own bundled 24x24 slot texture.
      */
-    //? if >=1.20.5 {
+    //? if >=1.21.11 {
+    /*private static final Identifier SLOT_BACKGROUND =
+            id("minecraft:textures/gui/sprites/hud/hotbar_offhand_left.png");
+    private static final Identifier EXCLAMATION_MARKS_TEXTURE =
+            id("armor_hud:textures/gui/exclamation_marks_flash.png");
+    *///?} elif >=1.20.5 {
     private static final ResourceLocation SLOT_BACKGROUND =
             id("minecraft:textures/gui/sprites/hud/hotbar_offhand_left.png");
+    private static final ResourceLocation EXCLAMATION_MARKS_TEXTURE =
+            id("armor_hud:textures/gui/exclamation_marks_flash.png");
     //?} else {
     /*private static final ResourceLocation SLOT_BACKGROUND =
             id("armor_hud:textures/gui/hotbar_texture.png");
-    *///?}
     private static final ResourceLocation EXCLAMATION_MARKS_TEXTURE =
             id("armor_hud:textures/gui/exclamation_marks_flash.png");
+    *///?}
 
-    /** {@code ResourceLocation.parse} was added in 1.21; older versions use the constructor. */
+    /**
+     * Builds a texture id. {@code parse} was added in 1.21 (older versions use the constructor), and
+     * the type itself was renamed {@code ResourceLocation} -> {@code Identifier} in 1.21.11.
+     */
+    //? if >=1.21.11 {
+    /*private static Identifier id(String s) {
+        return Identifier.parse(s);
+    }
+    *///?} else {
     private static ResourceLocation id(String s) {
         //? if >=1.21 {
         return ResourceLocation.parse(s);
@@ -49,6 +70,7 @@ public class ArmorHudOverlay {
         /*return new ResourceLocation(s);*/
         //?}
     }
+    //?}
 
     //? if >=1.20.5 {
     // hotbar_offhand_left.png is 29x24; we trim 6px off the right so the slot reads square-ish.
@@ -158,8 +180,13 @@ public class ArmorHudOverlay {
      *   <li>{@code >=1.21.6} — a {@code RenderPipeline} ({@code RenderPipelines.GUI_TEXTURED}).</li>
      * </ul>
      */
+    //? if >=1.21.11 {
+    /*private void blitTexture(GuiGraphics graphics, Identifier texture,
+                             int x, int y, int width, int height, int texWidth, int texHeight) {
+    *///?} else {
     private void blitTexture(GuiGraphics graphics, ResourceLocation texture,
                              int x, int y, int width, int height, int texWidth, int texHeight) {
+    //?}
         //? if >=1.21.6 {
         /*graphics.blit(RenderPipelines.GUI_TEXTURED, texture, x, y, 0.0F, 0.0F, width, height, texWidth, texHeight);
         *///?} elif >=1.21.2 {

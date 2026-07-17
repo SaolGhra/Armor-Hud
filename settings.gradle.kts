@@ -24,6 +24,7 @@ stonecutter {
             "1.20", "1.20.1", "1.20.2", "1.20.3", "1.20.4", "1.20.5", "1.20.6",
             "1.21.1", "1.21.2", "1.21.3", "1.21.4",
             "1.21.5", "1.21.6", "1.21.7", "1.21.8",
+            "1.21.9", "1.21.10", "1.21.11",
         )
         branch("fabric") // inherits all root versions
         // NeoForge, only where it has a STABLE release (20.3/20.5/21.2/21.6/21.7 never left beta)
@@ -31,7 +32,7 @@ stonecutter {
         // (@Mod without `dist`, ConfigScreenHandler instead of IConfigScreenFactory), so it would
         // need a second entrypoint style in the loader module — not worth it for that audience.
         branch("neoforge") {
-            versions("1.20.6", "1.21.1", "1.21.3", "1.21.4", "1.21.5", "1.21.8")
+            versions("1.20.6", "1.21.1", "1.21.3", "1.21.4", "1.21.5", "1.21.8", "1.21.10", "1.21.11")
         }
         branch("forge") { versions("1.20.1") }               // Forge is 1.20.1-only
         // 1.21.9+ reorganised many Mojmap packages (RenderType -> ...renderer.rendertype, etc.)
