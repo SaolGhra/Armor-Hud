@@ -8,8 +8,11 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
-//? if >=1.21.5
+//? if >=1.21.6 {
+/*import net.minecraft.client.renderer.RenderPipelines;
+*///?} elif >=1.21.2 {
 import net.minecraft.client.renderer.RenderType;
+//?}
 
 /**
  * Renders the armor HUD (four armor slots with durability bars/points and a low-durability warning)
@@ -129,13 +132,18 @@ public class ArmorHudOverlay {
     }
 
     /**
-     * Version-guarded texture blit. Minecraft 1.21.1 uses the {@code (ResourceLocation, x, y, u, v,
-     * w, h, texW, texH)} overload; 1.21.5+ requires a {@code RenderPipeline} first argument. The
-     * Stonecutter guard for that is introduced when 1.21.5+ is added to the matrix (Phase 3).
+     * Version-guarded texture blit. The first argument of {@code GuiGraphics.blit} changed twice:
+     * <ul>
+     *   <li>{@code <=1.21.1} — no extra argument, just the {@link ResourceLocation}.</li>
+     *   <li>{@code 1.21.2–1.21.5} — a {@code Function<ResourceLocation, RenderType>}.</li>
+     *   <li>{@code >=1.21.6} — a {@code RenderPipeline} ({@code RenderPipelines.GUI_TEXTURED}).</li>
+     * </ul>
      */
     private void blitTexture(GuiGraphics graphics, ResourceLocation texture,
                              int x, int y, int width, int height, int texWidth, int texHeight) {
-        //? if >=1.21.5 {
+        //? if >=1.21.6 {
+        /*graphics.blit(RenderPipelines.GUI_TEXTURED, texture, x, y, 0.0F, 0.0F, width, height, texWidth, texHeight);
+        *///?} elif >=1.21.2 {
         graphics.blit(RenderType::guiTextured, texture, x, y, 0.0F, 0.0F, width, height, texWidth, texHeight);
         //?} else {
         /*graphics.blit(texture, x, y, 0.0F, 0.0F, width, height, texWidth, texHeight);*/
