@@ -125,7 +125,9 @@ tasks.register<Copy>("buildAndCollect") {
     group = "versioned"
     description = "Must run through 'chiseledBuild'"
     from(tasks.remapJar.get().archiveFile, tasks.remapSourcesJar.get().archiveFile)
-    into(rootProject.layout.buildDirectory.file("libs/${mod.version}/$loader"))
+    // All loaders/versions collect into ONE folder. Jar names already carry loader + MC
+    // (armor_hud-<loader>-<ver>+<mc>.jar), so nothing collides.
+    into(rootProject.layout.buildDirectory.dir("libs/${mod.version}"))
     dependsOn("build")
 }
 

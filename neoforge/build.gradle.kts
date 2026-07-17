@@ -95,12 +95,19 @@ tasks.remapJar {
     dependsOn(tasks.shadowJar)
 }
 
+// Require the NeoForge line this jar was actually built against: e.g. loader 21.0.167 -> "[21.0,)",
+// 21.9.16-beta -> "[21.9,)". A hardcoded range would (wrongly) reject the jar on 1.21/1.20.6 whose
+// NeoForge is <21.1.
+val neoforgeRange = "[" +
+    common.mod.dep("neoforge_loader").substringBefore("-").split(".").take(2).joinToString(".") + ",)"
+
 tasks.processResources {
     properties(listOf("META-INF/neoforge.mods.toml", "pack.mcmeta"),
         "id" to mod.id,
         "name" to mod.name,
         "version" to mod.version,
-        "minecraft" to common.mod.prop("mc_dep_forgelike")
+        "minecraft" to common.mod.prop("mc_dep_forgelike"),
+        "neoforge" to neoforgeRange
     )
 }
 
@@ -113,7 +120,7 @@ tasks.register<Copy>("buildAndCollect") {
     group = "versioned"
     description = "Must run through 'chiseledBuild'"
     from(tasks.remapJar.get().archiveFile, tasks.remapSourcesJar.get().archiveFile)
-    into(rootProject.layout.buildDirectory.file("libs/${mod.version}/$loader"))
+    into(rootProject.layout.buildDirectory.dir("libs/${mod.version}"))
     dependsOn("build")
 }
 
