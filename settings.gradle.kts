@@ -27,14 +27,14 @@ stonecutter {
             "1.21.9", "1.21.10", "1.21.11",
         )
         branch("fabric") // inherits all root versions
-        // NeoForge, wherever it exists with the MODERN entrypoint API (>=21.0 / >=20.6). Where a
-        // released MC only has a beta NeoForge (21.2/21.6/21.7/21.9), the beta is the shipping loader.
-        // Still excluded: NeoForge <=20.4 (1.20.2/1.20.3/1.20.4) uses the legacy Forge-style entrypoint
-        // (@Mod without `dist`, ConfigScreenHandler), which needs a second guarded entrypoint — a
-        // separate task; and 1.20.5 (20.5.x) whose entrypoint API is still being confirmed.
+        // NeoForge everywhere it exists (starts at 1.20.2). Where a released MC only has a NeoForge
+        // beta (1.20.3/1.20.5/1.21.2/1.21.6/1.21.7/1.21.9), that beta is the shipping loader — the
+        // only option. The entrypoint has two forms: modern IConfigScreenFactory + @Mod(dist=…) for
+        // >=1.20.5, and the legacy Forge-style ConfigScreenHandler + DistExecutor for <=1.20.4 — see
+        // the Stonecutter guard in ArmorHudNeoForge.
         branch("neoforge") {
             versions(
-                "1.20.6",
+                "1.20.2", "1.20.3", "1.20.4", "1.20.5", "1.20.6",
                 "1.21", "1.21.1", "1.21.2", "1.21.3", "1.21.4",
                 "1.21.5", "1.21.6", "1.21.7", "1.21.8",
                 "1.21.9", "1.21.10", "1.21.11",
