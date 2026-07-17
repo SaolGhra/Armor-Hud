@@ -25,8 +25,19 @@ import net.minecraft.client.renderer.RenderType;
 public class ArmorHudOverlay {
     private final ArmorHudConfig config = ArmorHudConfig.getInstance();
 
-    private static final ResourceLocation HOTBAR_OFFHAND_LEFT =
+    /**
+     * Slot background. The vanilla GUI sprite {@code hud/hotbar_offhand_left} only exists from
+     * **1.20.5** (the GUI sprite-atlas rework); older versions still ship the single
+     * {@code gui/widgets.png} atlas, so blitting the sprite path there renders a missing texture.
+     * {@code <1.20.5} therefore falls back to our own bundled 24x24 slot texture.
+     */
+    //? if >=1.20.5 {
+    private static final ResourceLocation SLOT_BACKGROUND =
             id("minecraft:textures/gui/sprites/hud/hotbar_offhand_left.png");
+    //?} else {
+    /*private static final ResourceLocation SLOT_BACKGROUND =
+            id("armor_hud:textures/gui/hotbar_texture.png");
+    *///?}
     private static final ResourceLocation EXCLAMATION_MARKS_TEXTURE =
             id("armor_hud:textures/gui/exclamation_marks_flash.png");
 
@@ -39,11 +50,19 @@ public class ArmorHudOverlay {
         //?}
     }
 
+    //? if >=1.20.5 {
     // hotbar_offhand_left.png is 29x24; we trim 6px off the right so the slot reads square-ish.
     private static final int SPRITE_TEX_WIDTH = 29;
     private static final int SPRITE_TEX_HEIGHT = 24;
     private static final int SPRITE_DRAW_WIDTH = 23;
     private static final int SPRITE_DRAW_HEIGHT = 24;
+    //?} else {
+    /*// The bundled fallback is already a square 24x24 slot; draw it whole.
+    private static final int SPRITE_TEX_WIDTH = 24;
+    private static final int SPRITE_TEX_HEIGHT = 24;
+    private static final int SPRITE_DRAW_WIDTH = 24;
+    private static final int SPRITE_DRAW_HEIGHT = 24;
+    *///?}
 
     public void render(GuiGraphics graphics) {
         Minecraft client = Minecraft.getInstance();
@@ -127,7 +146,7 @@ public class ArmorHudOverlay {
     private void drawSlotBackground(GuiGraphics graphics, int x, int y, int width, int height) {
         int spriteX = x + (width - SPRITE_DRAW_WIDTH) / 2;
         int spriteY = y + (height - SPRITE_DRAW_HEIGHT) / 2;
-        blitTexture(graphics, HOTBAR_OFFHAND_LEFT, spriteX, spriteY,
+        blitTexture(graphics, SLOT_BACKGROUND, spriteX, spriteY,
                 SPRITE_DRAW_WIDTH, SPRITE_DRAW_HEIGHT, SPRITE_TEX_WIDTH, SPRITE_TEX_HEIGHT);
     }
 

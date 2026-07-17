@@ -47,8 +47,11 @@ dependencies {
     mappings(loom.officialMojangMappings())
     modImplementation("net.fabricmc:fabric-loader:${common.mod.dep("fabric_loader")}")
     modImplementation("net.fabricmc.fabric-api:fabric-api:${common.mod.dep("fabric_api")}")
-    // Optional: provides the "Config" button in the mod list. Not bundled; users install it separately.
-    modImplementation("com.terraformersmc:modmenu:${common.mod.dep("modmenu")}")
+    // ModMenu is an OPTIONAL runtime dep (users install it themselves) and we only implement its two
+    // API interfaces, so compile against it without dragging in its transitive deps: across the eight
+    // ModMenu majors this matrix spans, those pull mods from mavens we otherwise don't need (e.g. 9.x
+    // wants eu.pb4:placeholder-api). isTransitive=false keeps the version matrix resolvable.
+    modCompileOnly("com.terraformersmc:modmenu:${common.mod.dep("modmenu")}") { isTransitive = false }
 
     commonBundle(project(common.path, "namedElements")) { isTransitive = false }
     shadowBundle(project(common.path, "transformProductionFabric")) { isTransitive = false }
