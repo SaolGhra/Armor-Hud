@@ -141,6 +141,10 @@ publishMods {
     version = "${mod.version}+$minecraft-$loader"
     changelog = "See https://github.com/SaolGhra/Armor-Hud/releases"
     modLoaders.add(loader)
+    // Quilt runs this Fabric jar via its Fabric-compat layer + Quilted Fabric API (the mod is a clean
+    // fit — no mixins, just HudRenderCallback + optional ModMenu, which ships Quilt builds), so the
+    // Fabric artifact is offered to Quilt users too rather than maintaining a separate native module.
+    modLoaders.add("quilt")
     modrinth {
         projectId = "armor-hud"
         accessToken = providers.environmentVariable("MODRINTH_TOKEN").orElse("")

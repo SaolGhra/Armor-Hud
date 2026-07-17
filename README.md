@@ -21,8 +21,13 @@ Client-side only: it does **not** need to be installed on the server, and it has
 | Loader | Minecraft |
 |---|---|
 | **Fabric** | 1.20, 1.20.1, 1.20.2, 1.20.3, 1.20.4, 1.20.5, 1.20.6, 1.21, 1.21.1, 1.21.2, 1.21.3, 1.21.4, 1.21.5, 1.21.6, 1.21.7, 1.21.8, 1.21.9, 1.21.10, 1.21.11 |
+| **Quilt** | same as Fabric (runs the Fabric build) |
 | **NeoForge** | 1.20.2, 1.20.3, 1.20.4, 1.20.5, 1.20.6, 1.21, 1.21.1, 1.21.2, 1.21.3, 1.21.4, 1.21.5, 1.21.6, 1.21.7, 1.21.8, 1.21.9, 1.21.10, 1.21.11 |
 | **Forge** | 1.20.1 |
+
+**Quilt** uses the Fabric build — Quilt runs Fabric mods through its Fabric-compat layer, and Armor HUD
+is a clean fit (no mixins). On Quilt, install the Fabric jar plus
+[Quilted Fabric API](https://modrinth.com/mod/qsl) (QFAPI) instead of Fabric API.
 
 NeoForge covers everything it exists for — it started at 1.20.2, so 1.20/1.20.1 are Fabric-only. Where
 a Minecraft version only has a NeoForge **beta** (1.20.3/1.20.5/1.21.2/1.21.6/1.21.7/1.21.9), that beta
@@ -38,8 +43,8 @@ yet shipped support for it — see the project docs.
 All settings are saved to `config/armor_hud.json`, and there is a settings screen with a
 drag-to-position mode:
 
-- **Fabric** — install [Mod Menu](https://modrinth.com/mod/modmenu) (optional), then
-  *Mods → Armor HUD → Config*.
+- **Fabric / Quilt** — install [Mod Menu](https://modrinth.com/mod/modmenu) (optional; it has Quilt
+  builds), then *Mods → Armor HUD → Config*.
 - **NeoForge / Forge** — *Mods → Armor HUD → Config* (built in, no extra mod needed).
 
 In the screen, hit **Interactive Positioning** and drag the HUD preview to move it; the X/Y offsets
@@ -47,11 +52,12 @@ update live and save automatically.
 
 ## Installation
 
-1. Install Fabric, NeoForge, or Forge for your Minecraft version.
+1. Install Fabric, Quilt, NeoForge, or Forge for your Minecraft version.
 2. Download the matching jar from [Modrinth](https://modrinth.com/mod/armor-hud) or the
-   [releases page](https://github.com/SaolGhra/Armor-Hud/releases).
+   [releases page](https://github.com/SaolGhra/Armor-Hud/releases). On Quilt, use the **Fabric** jar.
 3. Drop it into your `mods` folder. On Fabric you also need
-   [Fabric API](https://modrinth.com/mod/fabric-api).
+   [Fabric API](https://modrinth.com/mod/fabric-api); on Quilt,
+   [Quilted Fabric API](https://modrinth.com/mod/qsl).
 
 ## Building
 
