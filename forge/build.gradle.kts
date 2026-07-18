@@ -128,7 +128,10 @@ publishMods {
     type = STABLE
     displayName = "Armor HUD ${mod.version} - ${common.mod.prop("mc_title")} ($loader)"
     version = "${mod.version}+$minecraft-$loader"
-    changelog = "See https://github.com/SaolGhra/Armor-Hud/releases"
+    // One CHANGELOG.md drives every upload in the matrix, so a release is a single edit here
+    // rather than pasting the same notes into ~37 Modrinth version pages by hand.
+    changelog = rootProject.file("CHANGELOG.md").takeIf { it.exists() }?.readText()
+        ?: "See https://github.com/SaolGhra/Armor-Hud/releases"
     modLoaders.add(loader)
     modrinth {
         projectId = "armor-hud"

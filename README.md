@@ -1,78 +1,105 @@
 # Armor HUD
 
-A lightweight, client-side Minecraft mod that shows your armour next to the hotbar with durability
-bars and a low-durability warning. Created by [SaolGhra](https://github.com/SaolGhra) —
-[available on Modrinth](https://modrinth.com/mod/armor-hud).
+See your armour and its durability at a glance, right next to the hotbar.
 
-Client-side only: it does **not** need to be installed on the server, and it has no mixins.
+Armor HUD draws your helmet, chestplate, leggings and boots as vanilla-style slots beside the hotbar,
+each with a colour-coded durability bar, and warns you before a piece breaks. It is **client-side
+only** — it does not need to be on the server, and it has no mixins.
+
+[Download on Modrinth](https://modrinth.com/mod/armor-hud) · [Report a bug](https://github.com/SaolGhra/Armor-Hud/issues) · by [SaolGhra](https://github.com/SaolGhra)
 
 ## Features
 
-- **Armour slots by the hotbar** — helmet, chestplate, leggings and boots, each on a vanilla-style slot.
-- **Durability bar** with a smooth colour gradient from green (full) through yellow (half) to red
-  (nearly broken), or an exact **durability number** instead if you prefer.
-- **Low-durability warning** — a bobbing `!` icon appears once a piece drops below 20% durability
-  (toggleable in-game; the threshold itself is editable in the config file).
-- **Position it anywhere** — drag the HUD where you want it, or lay the slots out vertically.
-- Hides with the rest of the HUD when you press F1.
+- **Armour at a glance** — all four pieces on vanilla-style slots next to the hotbar.
+- **Colour-coded durability bars** — a smooth gradient from green through yellow to red as a piece
+  wears down.
+- **Exact durability numbers** — prefer figures to bars? Turn on *Show Durability Points*.
+- **Low-durability warning** — a bobbing `!` appears once a piece drops below 20% (threshold editable
+  in the config file).
+- **Put it where you want it** — *Interactive Positioning* lets you drag the HUD anywhere on screen,
+  with the offsets saved automatically.
+- **Horizontal or vertical** — lay the slots out in a row or a column.
+- **Resource pack friendly** — the slot background and warning icon are ordinary textures under
+  `assets/armor_hud/textures/gui/`, so any resource pack can restyle them.
+- **Hides with the HUD** — press F1 and it goes away with everything else.
 
 ## Supported versions
 
 | Loader | Minecraft |
 |---|---|
-| **Fabric** | 1.20, 1.20.1, 1.20.2, 1.20.3, 1.20.4, 1.20.5, 1.20.6, 1.21, 1.21.1, 1.21.2, 1.21.3, 1.21.4, 1.21.5, 1.21.6, 1.21.7, 1.21.8, 1.21.9, 1.21.10, 1.21.11 |
-| **Quilt** | same as Fabric (runs the Fabric build) |
-| **NeoForge** | 1.20.2, 1.20.3, 1.20.4, 1.20.5, 1.20.6, 1.21, 1.21.1, 1.21.2, 1.21.3, 1.21.4, 1.21.5, 1.21.6, 1.21.7, 1.21.8, 1.21.9, 1.21.10, 1.21.11 |
+| **Fabric** | 1.20 – 1.21.11 |
+| **Quilt** | 1.20 – 1.21.11 (install the Fabric build) |
+| **NeoForge** | 1.20.2 – 1.21.11 |
 | **Forge** | 1.20.1 |
 
-**Quilt** uses the Fabric build — Quilt runs Fabric mods through its Fabric-compat layer, and Armor HUD
-is a clean fit (no mixins). On Quilt, install the Fabric jar plus
-[Quilted Fabric API](https://modrinth.com/mod/qsl) (QFAPI) instead of Fabric API.
+<details>
+<summary>Why some loaders cover fewer versions</summary>
 
-NeoForge covers everything it exists for — it started at 1.20.2, so 1.20/1.20.1 are Fabric-only. Where
-a Minecraft version only has a NeoForge **beta** (1.20.3/1.20.5/1.21.2/1.21.6/1.21.7/1.21.9), that beta
-is the shipping loader — it's the only option there. Forge is 1.20.1-only (legacy; binary-incompatible
-with NeoForge on 1.21+).
+NeoForge did not exist before **1.20.2**, so 1.20 and 1.20.1 are Fabric/Quilt only. Where a Minecraft
+version only ever had a NeoForge **beta** (1.20.3, 1.20.5, 1.21.2, 1.21.6, 1.21.7, 1.21.9), that beta
+is the supported build, because it is the only one there is. **Forge** is 1.20.1 only — it is legacy,
+and binary-incompatible with NeoForge from 1.21 onwards.
 
-**Minecraft 26.x**: builds for 26.x are published from the previous branch for now. 26.1 is the first
-fully unobfuscated Minecraft release, and the multi-loader build tooling (architectury-loom) has not
-yet shipped support for it.
+**Quilt** runs the Fabric build through its Fabric-compat layer. Armor HUD is a clean fit for this
+(no mixins), so there is no separate Quilt download — just use the Fabric jar with
+[Quilted Fabric API](https://modrinth.com/mod/qsl).
 
-## Configuration
+</details>
 
-All settings are saved to `config/armor_hud.json`, and there is a settings screen with a
-drag-to-position mode:
+> **Minecraft 26.x** builds are published separately for now. 26.1 was the first fully unobfuscated
+> Minecraft release, and the multi-loader build tooling has not caught up yet.
 
-- **Fabric / Quilt** — install [Mod Menu](https://modrinth.com/mod/modmenu) (optional; it has Quilt
-  builds), then *Mods → Armor HUD → Config*.
-- **NeoForge / Forge** — *Mods → Armor HUD → Config* (built in, no extra mod needed).
+## Installing
 
-In the screen, hit **Interactive Positioning** and drag the HUD preview to move it; the X/Y offsets
-update live and save automatically.
+1. Install **Fabric**, **Quilt**, **NeoForge** or **Forge** for your Minecraft version.
+2. Download the matching file from [Modrinth](https://modrinth.com/mod/armor-hud) or the
+   [releases page](https://github.com/SaolGhra/Armor-Hud/releases). On Quilt, take the **Fabric** file.
+3. Drop it in your `mods` folder, along with its dependency:
+   - **Fabric** → [Fabric API](https://modrinth.com/mod/fabric-api)
+   - **Quilt** → [Quilted Fabric API](https://modrinth.com/mod/qsl)
+   - **NeoForge / Forge** → nothing else needed
 
-## Installation
+Launchers that read Modrinth metadata (Modrinth App, Prism, ATLauncher) will offer to pull Fabric API
+in for you.
 
-1. Install Fabric, Quilt, NeoForge, or Forge for your Minecraft version.
-2. Download the matching jar from [Modrinth](https://modrinth.com/mod/armor-hud) or the
-   [releases page](https://github.com/SaolGhra/Armor-Hud/releases). On Quilt, use the **Fabric** jar.
-3. Drop it into your `mods` folder. On Fabric you also need
-   [Fabric API](https://modrinth.com/mod/fabric-api); on Quilt,
-   [Quilted Fabric API](https://modrinth.com/mod/qsl).
+## Settings
 
-## Building
+Open the settings screen in game:
 
-The repo is a [Stonecutter](https://stonecutter.kikugie.dev/) + [Architectury Loom](https://github.com/architectury/architectury-loom)
-monorepo: one shared source tree, with per-version differences handled by version-guarded comments.
-Build every version and loader in one go (requires **JDK 21**):
+- **Fabric / Quilt** — install [Mod Menu](https://modrinth.com/mod/modmenu), then *Mods → Armor HUD →
+  the settings icon*.
+- **NeoForge / Forge** — *Mods → Armor HUD → Config*. Built in, nothing extra required.
+
+From there you can toggle the HUD, switch to vertical layout, turn warning marks or durability
+numbers on and off, reset everything, and hit **Interactive Positioning** to drag the HUD into place.
+
+Everything is stored in `config/armor_hud.json`, which also exposes a few values the screen does not:
+
+| Key | Default | What it does |
+|---|---|---|
+| `durabilityWarningThreshold` | `0.20` | Fraction of durability below which the `!` appears |
+| `boxSize` | `22` | Size of each armour slot, in GUI pixels |
+| `spacing` | `2` | Gap between slots, in GUI pixels |
+
+> On **NeoForge 1.21.9** the loader's own mod list crashes before any mod's settings screen can open
+> (a NeoForge 21.9.16-beta bug — it happens with no mods installed at all). Edit
+> `config/armor_hud.json` directly on that version.
+
+## Building from source
+
+One shared source tree covers every version and loader, using
+[Stonecutter](https://stonecutter.kikugie.dev/) and
+[Architectury Loom](https://github.com/architectury/architectury-loom). Build the lot with **JDK 21**:
 
 ```bash
 ./gradlew chiseledBuild -x runGameTest -x runClientGameTest
 ```
 
-Every jar for every version and loader lands together in `build/libs/<mod-version>/` (jar names carry
-the loader and MC, e.g. `armor_hud-neoforge-4.0.0+1.21.5.jar`, so nothing collides). Build **only**
-through the chiseled tasks — a direct `:fabric:<mc>:build` silently produces an empty jar for any
-version that isn't the active one.
+Every jar lands in `build/libs/<mod-version>/`, named by loader and Minecraft version (for example
+`armor_hud-neoforge-4.0.0+1.21.5.jar`).
+
+> Build through the `chiseled*` tasks only. A direct `:fabric:<mc>:build` silently produces an **empty**
+> jar for any version that is not the currently active one.
 
 Other useful tasks:
 
@@ -81,14 +108,13 @@ Other useful tasks:
 ./gradlew :fabric:1.21.5:runClientGameTest  # screenshot tests (Fabric >=1.21.5, needs a display)
 ```
 
+Release verification lives in `scripts/verify/` — see the README there.
+
 ## Contributing
 
-Contributions are welcome. Please open an issue or a pull request.
+Issues and pull requests are welcome on the
+[issue tracker](https://github.com/SaolGhra/Armor-Hud/issues).
 
-## Support
+## Licence
 
-Questions and bug reports: the [issues page](https://github.com/SaolGhra/Armor-Hud/issues).
-
-## License
-
-Licensed under the [MIT License](LICENSE.txt).
+[MIT](LICENSE.txt).

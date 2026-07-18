@@ -122,7 +122,16 @@ public class ArmorHudConfigScreen extends Screen {
         // Dim the background ourselves (renderBackground's signature moved across versions).
         graphics.fill(0, 0, this.width, this.height, interactiveMode ? 0x20000000 : 0xC0101010);
 
-        graphics.drawCenteredString(this.font, this.title, this.width / 2, 8, 0xFFFFFF);
+        // Widgets first, then our own text on top. Some versions (1.21-1.21.2 at least) draw the
+        // screen background from inside super.render, which paints over anything written before it:
+        // the header text was still there but dimmed to ~40% brightness, legible enough in a
+        // thumbnail to look intentional.
+        super.render(graphics, mouseX, mouseY, delta);
+
+        // Colours here are ARGB: 0xFFFFFF would be alpha 0x00, i.e. invisible. Older versions'
+        // font renderer silently promoted a zero alpha to opaque, so the title looked fine on
+        // 1.20.x while being completely invisible from the newer render pipeline onwards.
+        graphics.drawCenteredString(this.font, this.title, this.width / 2, 8, 0xFFFFFFFF);
         graphics.drawCenteredString(this.font,
                 Component.translatable("armor_hud.config.position", config.getXOffset(), config.getYOffset()),
                 this.width / 2, 20, 0xFFB0B0B0);
@@ -132,8 +141,6 @@ public class ArmorHudConfigScreen extends Screen {
                     : "armor_hud.config.interactive.hint");
             graphics.drawCenteredString(this.font, hint, this.width / 2, 30, 0xFFFFFF00);
         }
-
-        super.render(graphics, mouseX, mouseY, delta);
 
         renderPreviewHud(graphics);
     }
