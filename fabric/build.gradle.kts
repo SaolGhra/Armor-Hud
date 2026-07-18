@@ -139,10 +139,10 @@ publishMods {
     type = STABLE
     displayName = "Armor HUD ${mod.version} - ${common.mod.prop("mc_title")} ($loader)"
     version = "${mod.version}+$minecraft-$loader"
-    // One CHANGELOG.md drives every upload in the matrix, so a release is a single edit here
-    // rather than pasting the same notes into ~37 Modrinth version pages by hand.
-    changelog = rootProject.file("CHANGELOG.md").takeIf { it.exists() }?.readText()
-        ?: "See https://github.com/SaolGhra/Armor-Hud/releases"
+    // Supplied at release time (Jenkins prompts for it and passes -Pchangelog=...), so one
+    // entry covers every upload in the matrix instead of being pasted into ~37 version pages.
+    changelog = providers.gradleProperty("changelog")
+        .orElse("See https://github.com/SaolGhra/Armor-Hud/releases").get()
     modLoaders.add(loader)
     // Quilt runs this Fabric jar via its Fabric-compat layer + Quilted Fabric API (the mod is a clean
     // fit — no mixins, just HudRenderCallback + optional ModMenu, which ships Quilt builds), so the

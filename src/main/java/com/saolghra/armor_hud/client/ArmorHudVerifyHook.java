@@ -1,6 +1,6 @@
 package com.saolghra.armor_hud.client;
 
-// Verification seam for scripts/verify, compiled ONLY into verification builds
+// Verification seam for the release harness, compiled ONLY into verification builds
 // (-Parmorhud.verify=true). Released jars contain neither this class nor the call to it.
 //
 // Why it exists: the harness runs on a Wayland session, and driving Minecraft's menus needs

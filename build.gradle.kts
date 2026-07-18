@@ -5,7 +5,7 @@ plugins {
 
 val minecraft = stonecutter.current.version
 
-// `verify` gates the ArmorHudVerifyHook test seam (scripts/verify uses it to open the config screen
+// `verify` gates the ArmorHudVerifyHook test seam (the release harness uses it to open the config screen
 // without input automation). Release builds compile it out entirely — call site AND class — so the
 // published jars carry no test scaffolding. Verification runs pass -Parmorhud.verify=true.
 // NOTE: this makes the verified build differ from the shipped build by that one class. Tier 1 audits

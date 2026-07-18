@@ -17,6 +17,9 @@ pipeline {
     parameters {
         booleanParam(name: 'PUBLISH', defaultValue: false,
                 description: 'Publish the built jars to Modrinth (needs the modrinth-token credential).')
+        text(name: 'CHANGELOG', defaultValue: '',
+                description: 'Release notes for Modrinth, shown on every uploaded version. Markdown. ' +
+                        'Left empty, the version pages link to the GitHub releases page instead.')
         booleanParam(name: 'RUN_SCREENSHOT_TESTS', defaultValue: false,
                 description: 'Run the Fabric Client GameTest screenshot tests (needs a display / Xvfb).')
         string(name: 'NOTIFY_URL', defaultValue: 'https://notify.saolghra.co.uk/builds',
@@ -107,12 +110,20 @@ pipeline {
             when { expression { return params.PUBLISH } }
             steps {
                 withCredentials([string(credentialsId: 'modrinth-token', variable: 'MODRINTH_TOKEN')]) {
+                    // The changelog goes through a file rather than straight onto the command line:
+                    // release notes are multi-line and contain quotes and backticks, which would be
+                    // mangled (or would break the shell) if interpolated into the sh string.
+                    writeFile file: 'build/changelog.md', text: params.CHANGELOG ?: ''
                     sh '''
                         set -e
                         export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
                         export PATH="$JAVA_HOME/bin:$PATH"
                         # chiseledPublish runs publishMods for every version (each with its source active).
-                        ./gradlew chiseledPublish --stacktrace
+                        if [ -s build/changelog.md ]; then
+                            ./gradlew chiseledPublish -Pchangelog="$(cat build/changelog.md)" --stacktrace
+                        else
+                            ./gradlew chiseledPublish --stacktrace
+                        fi
                     '''
                 }
             }
