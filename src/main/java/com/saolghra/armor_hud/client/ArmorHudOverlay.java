@@ -17,8 +17,8 @@ import net.minecraft.world.item.ItemStack;
 //? if >=1.21.6 {
 /*import net.minecraft.client.renderer.RenderPipelines;
 *///?} elif >=1.21.2 {
-import net.minecraft.client.renderer.RenderType;
-//?}
+/*import net.minecraft.client.renderer.RenderType;
+*///?}
 
 /**
  * Renders the armor HUD (four armor slots with durability bars/points and a low-durability warning)
@@ -43,16 +43,16 @@ public class ArmorHudOverlay {
     private static final Identifier EXCLAMATION_MARKS_TEXTURE =
             id("armor_hud:textures/gui/exclamation_marks_flash.png");
     *///?} elif >=1.20.5 {
-    private static final ResourceLocation SLOT_BACKGROUND =
+    /*private static final ResourceLocation SLOT_BACKGROUND =
             id("minecraft:textures/gui/sprites/hud/hotbar_offhand_left.png");
     private static final ResourceLocation EXCLAMATION_MARKS_TEXTURE =
             id("armor_hud:textures/gui/exclamation_marks_flash.png");
-    //?} else {
-    /*private static final ResourceLocation SLOT_BACKGROUND =
+    *///?} else {
+    private static final ResourceLocation SLOT_BACKGROUND =
             id("armor_hud:textures/gui/hotbar_texture.png");
     private static final ResourceLocation EXCLAMATION_MARKS_TEXTURE =
             id("armor_hud:textures/gui/exclamation_marks_flash.png");
-    *///?}
+    //?}
 
     /**
      * Builds a texture id. {@code parse} was added in 1.21 (older versions use the constructor), and
@@ -65,29 +65,33 @@ public class ArmorHudOverlay {
     *///?} else {
     private static ResourceLocation id(String s) {
         //? if >=1.21 {
-        return ResourceLocation.parse(s);
-        //?} else {
-        /*return new ResourceLocation(s);*/
+        /*return ResourceLocation.parse(s);
+        *///?} else {
+        return new ResourceLocation(s);
         //?}
     }
     //?}
 
     //? if >=1.20.5 {
-    // hotbar_offhand_left.png is 29x24; we trim 6px off the right so the slot reads square-ish.
+    /*// hotbar_offhand_left.png is 29x24; we trim 6px off the right so the slot reads square-ish.
     private static final int SPRITE_TEX_WIDTH = 29;
     private static final int SPRITE_TEX_HEIGHT = 24;
     private static final int SPRITE_DRAW_WIDTH = 23;
     private static final int SPRITE_DRAW_HEIGHT = 24;
-    //?} else {
-    /*// The bundled fallback is already a square 24x24 slot; draw it whole.
+    *///?} else {
+    // The bundled fallback is already a square 24x24 slot; draw it whole.
     private static final int SPRITE_TEX_WIDTH = 24;
     private static final int SPRITE_TEX_HEIGHT = 24;
     private static final int SPRITE_DRAW_WIDTH = 24;
     private static final int SPRITE_DRAW_HEIGHT = 24;
-    *///?}
+    //?}
 
     public void render(GuiGraphics graphics) {
         Minecraft client = Minecraft.getInstance();
+
+        //? if verify {
+        /*ArmorHudVerifyHook.onFrame();
+        *///?}
 
         if (!config.isVisible() || isHudHidden(client) || client.player == null || client.level == null) {
             return;
@@ -121,6 +125,16 @@ public class ArmorHudOverlay {
         }
 
         // Pass 2: durability (bar or numeric) + low-durability warning.
+        //
+        // Item models render with real depth (vanilla places them around z=150), so flat decorations
+        // drawn at z=0 land *behind* the armour icon — drawing them in a later pass is not enough.
+        // Vanilla hits the same problem and solves it the same way, translating +200 before its own
+        // renderItemDecorations. From 1.21.6 the GUI draws through a 2D matrix stack ordered purely by
+        // submission, so there is no z to translate and pass order alone already puts these on top.
+        //? if <1.21.6 {
+        graphics.pose().pushPose();
+        graphics.pose().translate(0.0F, 0.0F, 200.0F);
+        //?}
         for (int slot = 0; slot < armorItems.length; slot++) {
             ItemStack armorItem = armorItems[slot];
             if (armorItem.isEmpty()) continue;
@@ -138,6 +152,9 @@ public class ArmorHudOverlay {
                 drawExclamationMark(graphics, drawX, drawY);
             }
         }
+        //? if <1.21.6 {
+        graphics.pose().popPose();
+        //?}
     }
 
     private void drawDurabilityPoints(GuiGraphics graphics, int boxX, int boxY, int boxSize, ItemStack item) {
@@ -190,9 +207,9 @@ public class ArmorHudOverlay {
         //? if >=1.21.6 {
         /*graphics.blit(RenderPipelines.GUI_TEXTURED, texture, x, y, 0.0F, 0.0F, width, height, texWidth, texHeight);
         *///?} elif >=1.21.2 {
-        graphics.blit(RenderType::guiTextured, texture, x, y, 0.0F, 0.0F, width, height, texWidth, texHeight);
-        //?} else {
-        /*graphics.blit(texture, x, y, 0.0F, 0.0F, width, height, texWidth, texHeight);*/
+        /*graphics.blit(RenderType::guiTextured, texture, x, y, 0.0F, 0.0F, width, height, texWidth, texHeight);
+        *///?} else {
+        graphics.blit(texture, x, y, 0.0F, 0.0F, width, height, texWidth, texHeight);
         //?}
     }
 

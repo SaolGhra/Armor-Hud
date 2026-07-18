@@ -103,6 +103,14 @@ public class ArmorHudConfigScreen extends Screen {
         return Component.translatable(key).append(": ").append(state);
     }
 
+    // Exists only for the verification harness (screenshotting interactive mode without simulated
+    // input), so it is compiled out of release builds along with ArmorHudVerifyHook.
+    //? if verify {
+    /*public void setInteractiveMode(boolean value) {
+        this.interactiveMode = value;
+    }
+    *///?}
+
     private Component interactiveModeLabel() {
         return Component.translatable(interactiveMode
                 ? "armor_hud.config.interactive.exit"
@@ -235,6 +243,7 @@ public class ArmorHudConfigScreen extends Screen {
         int originX = hudOriginX();
         int originY = hudOriginY();
 
+        // Pass 1: slot backgrounds + item icons.
         for (int slot = 0; slot < previewArmor.length; slot++) {
             ItemStack item = previewArmor[slot];
             int drawX = ArmorHudMath.slotX(vertical, originX, slot, previewArmor.length, stride);
@@ -242,6 +251,18 @@ public class ArmorHudConfigScreen extends Screen {
 
             graphics.fill(drawX, drawY, drawX + box, drawY + box, 0x80000000);
             graphics.renderItem(item, drawX + (box - ICON_SIZE) / 2, drawY + (box - ICON_SIZE) / 2);
+        }
+
+        // Pass 2: durability decorations, lifted above the item models exactly as the real overlay
+        // does — see ArmorHudOverlay#render for why the +200 translate is needed below 1.21.6.
+        //? if <1.21.6 {
+        graphics.pose().pushPose();
+        graphics.pose().translate(0.0F, 0.0F, 200.0F);
+        //?}
+        for (int slot = 0; slot < previewArmor.length; slot++) {
+            ItemStack item = previewArmor[slot];
+            int drawX = ArmorHudMath.slotX(vertical, originX, slot, previewArmor.length, stride);
+            int drawY = ArmorHudMath.slotY(vertical, originY, box, slot, stride);
 
             int maxDamage = item.getMaxDamage();
             if (maxDamage <= 0) {
@@ -271,6 +292,9 @@ public class ArmorHudConfigScreen extends Screen {
                 graphics.drawString(this.font, Component.literal("!"), drawX - 1, drawY - 2, 0xFFFFFF00, true);
             }
         }
+        //? if <1.21.6 {
+        graphics.pose().popPose();
+        //?}
     }
 
     private void initializePreviewArmor() {

@@ -1,7 +1,7 @@
 package com.saolghra.armor_hud.neoforge;
 
 //? if <1.20.5 {
-/*import com.saolghra.armor_hud.ArmorHud;
+import com.saolghra.armor_hud.ArmorHud;
 import com.saolghra.armor_hud.client.config.ArmorHudConfigScreen;
 
 import net.neoforged.fml.ModLoadingContext;
@@ -29,9 +29,9 @@ final class ArmorHudNeoForgeClient {
         ArmorHud.render(event.getGuiGraphics());
     }
 }
-*///?} else {
-// Unused on modern NeoForge (>=1.20.5): ArmorHudNeoForge wires everything directly.
+//?} else {
+/*// Unused on modern NeoForge (>=1.20.5): ArmorHudNeoForge wires everything directly.
 final class ArmorHudNeoForgeClient {
     private ArmorHudNeoForgeClient() {}
 }
-//?}
+*///?}

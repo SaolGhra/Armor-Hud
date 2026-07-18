@@ -11,7 +11,7 @@
     "issues": "https://github.com/SaolGhra/Armor-Hud/issues"
   },
   "license": "MIT",
-  "icon": "assets/armor_hud/logo/ArmorHUDLogo.png",
+  "icon": "assets/armor_hud/logo/armor_hud_logo.png",
   "environment": "client",
   "entrypoints": {
     "client": ["com.saolghra.armor_hud.fabric.ArmorHudFabric"],

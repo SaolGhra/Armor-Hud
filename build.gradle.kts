@@ -5,6 +5,13 @@ plugins {
 
 val minecraft = stonecutter.current.version
 
+// `verify` gates the ArmorHudVerifyHook test seam (scripts/verify uses it to open the config screen
+// without input automation). Release builds compile it out entirely — call site AND class — so the
+// published jars carry no test scaffolding. Verification runs pass -Parmorhud.verify=true.
+// NOTE: this makes the verified build differ from the shipped build by that one class. Tier 1 audits
+// the real jars and asserts the hook is absent from them.
+stonecutter.const("verify", providers.gradleProperty("armorhud.verify").isPresent)
+
 version = "${mod.version}+$minecraft"
 base {
     archivesName.set("${mod.id}-common")

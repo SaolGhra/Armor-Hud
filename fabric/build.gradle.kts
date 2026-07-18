@@ -149,5 +149,14 @@ publishMods {
         projectId = "armor-hud"
         accessToken = providers.environmentVariable("MODRINTH_TOKEN").orElse("")
         minecraftVersions.addAll(common.mod.prop("mc_targets").split(" "))
+
+        // Declared so launchers (Modrinth App, Prism, CurseForge) resolve these at install time
+        // instead of the user finding out via a loader crash. fabric-api is a hard `depends` in
+        // fabric.mod.json — the HUD hook IS Fabric API — so it is required; ModMenu is genuinely
+        // optional (the HUD renders fine without it, it only surfaces the config screen), and
+        // marking it required would force an install plenty of users don't want.
+        // Quilt users get these via Quilted Fabric API / ModMenu's Quilt builds.
+        requires { slug = "fabric-api" }
+        optional { slug = "modmenu" }
     }
 }

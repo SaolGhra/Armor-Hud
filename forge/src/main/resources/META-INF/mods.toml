@@ -9,7 +9,7 @@ version = "${version}"
 displayName = "${name}"
 authors = "SaolGhra"
 description = '''Displays the durability of your armor in a simple and clean way.'''
-logoFile = "assets/armor_hud/logo/ArmorHUDLogo.png"
+logoFile = "assets/armor_hud/logo/armor_hud_logo.png"
 displayURL = "https://modrinth.com/mod/armor-hud"
 
 [[dependencies.${id}]]
