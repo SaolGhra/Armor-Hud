@@ -36,7 +36,7 @@ with NeoForge on 1.21+).
 
 **Minecraft 26.x**: builds for 26.x are published from the previous branch for now. 26.1 is the first
 fully unobfuscated Minecraft release, and the multi-loader build tooling (architectury-loom) has not
-yet shipped support for it — see the project docs.
+yet shipped support for it.
 
 ## Configuration
 
@@ -81,13 +81,9 @@ Other useful tasks:
 ./gradlew :fabric:1.21.5:runClientGameTest  # screenshot tests (Fabric >=1.21.5, needs a display)
 ```
 
-Contributor notes — architecture, the version-guard table, and the testing model — live in
-the project docs.
-
 ## Contributing
 
-Contributions are welcome. Please open an issue or a pull request. If you're adding a Minecraft
-version, follow the project docs.
+Contributions are welcome. Please open an issue or a pull request.
 
 ## Support
 
