@@ -41,9 +41,15 @@ pipeline {
                 description: 'Webhook pinged on success/failure.')
     }
 
-    // Uncomment to have the full verification run itself overnight. Deliberately off by default:
-    // this is roughly two hours of agent time every night, which is a commitment to make on purpose.
-    //   triggers { cron('H 3 * * *') }
+    // The full verification runs itself overnight. The point is not to have to remember it: a
+    // scheduled build turns on the expensive checks (see nightly() below), so the matrix is verified
+    // without anyone asking it to.
+    //
+    // H 3 means "some minute of the 3am hour", picked by Jenkins from the job name so it does not
+    // collide with everything else scheduled on the hour. Expect this to run for hours: the agent
+    // renders through llvmpipe, which is several times slower than a GPU. That is fine for something
+    // nobody is waiting on, and it is the whole reason it is not on a desktop.
+    triggers { cron('H 3 * * *') }
 
     options {
         timestamps()
