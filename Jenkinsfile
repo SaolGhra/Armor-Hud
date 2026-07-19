@@ -145,6 +145,9 @@ pipeline {
                     set -e
                     export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
                     export PATH="$JAVA_HOME/bin:$PATH"
+                    # The harness is cloned beside the project, not inside it, so it cannot derive
+                    # the project root from its own location.
+                    export ARMOR_HUD_ROOT="$WORKSPACE"
                     python3 verify/audit_jars.py
                 '''
             }
@@ -161,6 +164,7 @@ pipeline {
                     export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
                     export PATH="$JAVA_HOME/bin:$PATH"
                     export ARMOR_HUD_HEADLESS=1
+                    export ARMOR_HUD_ROOT="$WORKSPACE"
                     verify/hud_ingame.sh neoforge
                     verify/hud_ingame.sh fabric
                     verify/hud_ingame.sh forge
