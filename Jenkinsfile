@@ -1,55 +1,70 @@
-// Armor HUD CI — builds the whole Stonecutter/Architectury matrix and (optionally) publishes to
-// Modrinth. Replaces the old single-version "bump gradle.properties" pipeline: with the monorepo,
-// every supported Minecraft version is a Gradle node, so CI just iterates the matrix.
+// Armor HUD CI — builds the whole Stonecutter/Architectury matrix, verifies it, and publishes.
 //
-// See the project docs for why the toolchain is pinned the way it is.
+// Two things this is for:
+//
+//   1. A change lands -> build every loader/version, collect the jars, run every check that can run
+//      unattended, and report. Progress goes to ntfy as it happens, so the state of a long run is
+//      visible from a phone without opening Jenkins.
+//   2. When the results look right -> publish, on request only. GitHub release with the supplied
+//      changelog, and the same notes to Modrinth across the matrix.
 //
 // No SNAPSHOT parameter yet, deliberately: snapshots are currently on the 26.3 line, and the whole
-// 26.x line is unbuildable because architectury-loom has no unobfuscated/no-remap support (26.1+ ships
-// no Mojang mappings and no Fabric intermediary — see the project docs). A snapshot build
-// would fail for that reason alone, so it is gated on 26.x support landing. When it does, add a
-// TARGET_MINECRAFT_VERSION param that writes versions/<mc>/gradle.properties and appends the version
-// in settings.gradle.kts before running chiseledBuild.
+// 26.x line is unbuildable because architectury-loom has no unobfuscated/no-remap support (26.1+
+// ships no Mojang mappings and no Fabric intermediary). A snapshot build would fail for that reason
+// alone, so it is gated on 26.x support landing.
 
-// True when Jenkins itself started this build on a schedule, rather than a person clicking Build.
-// This is how the nightly run turns on the expensive checks without the parameterized-scheduler
-// plugin: a manual build stays fast, a timed one verifies everything.
+// True when Jenkins started this build on a schedule rather than a person clicking Build. Used to
+// keep the nightly honest: it always runs the full check set regardless of how the parameters were
+// left by the last manual run.
 def nightly() {
     return currentBuild.getBuildCauses().any { it._class?.contains('TimerTrigger') }
+}
+
+// Push a line to ntfy. Deliberately terse: these are read on a phone, so they lead with the thing
+// worth acting on. Never fails the build — a notification problem is not a build problem.
+def notify(String title, String message, String tags = 'gear', String priority = 'default') {
+    if (!params.NOTIFY_URL?.trim()) { return }
+    // Values go through the environment rather than the command line so a changelog or an error
+    // message containing quotes cannot break the shell or inject into it.
+    withEnv(["NTFY_TITLE=${title}", "NTFY_BODY=${message}", "NTFY_TAGS=${tags}", "NTFY_PRIO=${priority}"]) {
+        sh '''
+            curl -sS -X POST \
+                -H "Title: $NTFY_TITLE" \
+                -H "Tags: $NTFY_TAGS" \
+                -H "Priority: $NTFY_PRIO" \
+                -d "$NTFY_BODY" \
+                "''' + params.NOTIFY_URL + '''" >/dev/null 2>&1 || true
+        '''
+    }
 }
 
 pipeline {
     agent { label 'linux' }
 
     parameters {
-        booleanParam(name: 'PUBLISH', defaultValue: false,
-                description: 'Publish the built jars to Modrinth (needs the modrinth-token credential).')
-        text(name: 'CHANGELOG', defaultValue: '',
-                description: 'Release notes for Modrinth, shown on every uploaded version. Markdown. ' +
-                        'Left empty, the version pages link to the GitHub releases page instead.')
-        booleanParam(name: 'RUN_SCREENSHOT_TESTS', defaultValue: false,
-                description: 'Run the Fabric Client GameTest screenshot tests (needs a display / Xvfb).')
         booleanParam(name: 'RUN_JAR_AUDIT', defaultValue: true,
-                description: 'Static audit of every built jar. Seconds, no game launch.')
-        booleanParam(name: 'RUN_HUD_CHECK', defaultValue: false,
+                description: 'Static audit of every built jar: manifest shape, java target, guard ' +
+                        'branches, resource paths. Seconds, no game launch.')
+        booleanParam(name: 'RUN_HUD_CHECK', defaultValue: true,
                 description: 'In-world HUD pixel assertions across the whole matrix. Launches a real ' +
-                        'client per node under software GL — roughly 90 minutes. Nightly / pre-release.')
+                        'client per node under software GL — this is the long one.')
         booleanParam(name: 'RUN_CONFIG_CHECK', defaultValue: false,
                 description: 'Drive the mod list to the config screen using real jars in a launcher. ' +
-                        'Needs PrismLauncher instances on the agent — not yet provisioned.')
-        string(name: 'NOTIFY_URL', defaultValue: 'https://notify.saolghra.co.uk/builds',
-                description: 'Webhook pinged on success/failure.')
-    }
+                        'Needs PrismLauncher instances on the agent — not provisioned yet.')
+        booleanParam(name: 'RUN_SCREENSHOT_TESTS', defaultValue: false,
+                description: 'Fabric Client GameTest screenshot tests (1.21.5+ only).')
 
-    // The full verification runs itself overnight. The point is not to have to remember it: a
-    // scheduled build turns on the expensive checks (see nightly() below), so the matrix is verified
-    // without anyone asking it to.
-    //
-    // H 3 means "some minute of the 3am hour", picked by Jenkins from the job name so it does not
-    // collide with everything else scheduled on the hour. Expect this to run for hours: the agent
-    // renders through llvmpipe, which is several times slower than a GPU. That is fine for something
-    // nobody is waiting on, and it is the whole reason it is not on a desktop.
-    triggers { cron('H 3 * * *') }
+        booleanParam(name: 'PUBLISH_GITHUB', defaultValue: false,
+                description: 'Create a GitHub release for mod.version and attach every jar.')
+        booleanParam(name: 'PUBLISH_MODRINTH', defaultValue: false,
+                description: 'Upload every jar to Modrinth (needs the modrinth-token credential).')
+        text(name: 'CHANGELOG', defaultValue: '',
+                description: 'Release notes. Used as the GitHub release body and as the Modrinth ' +
+                        'changelog on every uploaded version. Markdown.')
+
+        string(name: 'NOTIFY_URL', defaultValue: 'https://notify.saolghra.co.uk/builds',
+                description: 'ntfy topic for progress notifications. Empty disables them.')
+    }
 
     options {
         timestamps()
@@ -61,16 +76,23 @@ pipeline {
     environment {
         // Deliberately OUTSIDE the workspace: cleanWs() runs after every build, so a cache under
         // ${WORKSPACE} is destroyed each time and every run re-downloads Minecraft, the mappings and
-        // every dependency. That is slow, and it makes the build hostage to third-party maven uptime
-        // — a flaky maven.terraformersmc.com (HTTP/2 resets) failed the whole 37-node matrix on a
-        // single optional Mod Menu jar that is already cached on any warm machine.
+        // every dependency — which also makes the build hostage to third-party maven uptime.
         GRADLE_USER_HOME = "${JENKINS_HOME}/.gradle-armor-hud"
         _JAVA_OPTIONS = '-Xmx3G -Xms512M'
     }
 
+    // The full verification runs itself overnight, so the matrix is checked whether or not anyone
+    // remembers to ask. H 3 means "some minute of the 3am hour", chosen by Jenkins so it does not
+    // collide with everything else scheduled on the hour.
+    triggers { cron('H 3 * * *') }
+
     stages {
         stage('Setup JDK 21') {
             steps {
+                script {
+                    notify("Armor HUD #${env.BUILD_NUMBER} started",
+                           nightly() ? 'nightly verification' : 'build + verify', 'hammer')
+                }
                 sh '''
                     set -e
                     # Gradle 8.14 needs Java <= 21; provision Temurin 21 locally if the agent lacks it.
@@ -91,8 +113,7 @@ pipeline {
         stage('Build matrix') {
             steps {
                 // Retried because the upstream mod mavens are not reliable: a single transient
-                // artifact download failure otherwise reds the entire matrix. The retry costs
-                // nothing on a warm cache, since resolved artifacts are already local.
+                // artifact download failure otherwise reds the entire matrix.
                 retry(2) {
                     sh '''
                         set -e
@@ -102,6 +123,11 @@ pipeline {
                         # generating each version's source (a direct :loader:version:build would be empty).
                         ./gradlew chiseledBuild -x runGameTest -x runClientGameTest --stacktrace
                     '''
+                }
+                script {
+                    def jars = sh(script: 'ls build/libs/*/*.jar 2>/dev/null | grep -vc sources || echo 0',
+                                  returnStdout: true).trim()
+                    notify("Build OK — ${jars} jars", "matrix built, starting checks", 'package')
                 }
             }
         }
@@ -116,7 +142,10 @@ pipeline {
                     ./gradlew :1.21.5:test --stacktrace
                 '''
             }
-            post { always { junit allowEmptyResults: true, testResults: '**/build/test-results/test/*.xml' } }
+            post {
+                always { junit allowEmptyResults: true, testResults: '**/build/test-results/test/*.xml' }
+                failure { script { notify("Unit tests FAILED", "build #${env.BUILD_NUMBER}", 'x', 'high') } }
+            }
         }
 
         stage('Screenshot tests') {
@@ -126,7 +155,6 @@ pipeline {
                     set -e
                     export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
                     export PATH="$JAVA_HOME/bin:$PATH"
-                    # Client gametests need a framebuffer + vsync off (see the project docs).
                     export DISPLAY="${DISPLAY:-:0}" __GL_SYNC_TO_VBLANK=0 vblank_mode=0
                     ./gradlew :fabric:1.21.5:runClientGameTest --stacktrace
                 '''
@@ -134,42 +162,26 @@ pipeline {
             post { always { archiveArtifacts artifacts: '**/run/clientGameTest/screenshots/*.png', allowEmptyArchive: true } }
         }
 
-        // The verification harness lives in a separate private repo, deliberately: it is test
-        // tooling, not part of the published mod. Cloned read-only with a deploy key scoped to that
-        // one repo, so a compromised agent cannot push anywhere.
+        // The verification harness lives in a separate private repo: it is test tooling, not part of
+        // the published mod. Cloned read-only with a deploy key scoped to that one repo.
         stage('Fetch verification harness') {
-            when { expression { return params.RUN_JAR_AUDIT || params.RUN_HUD_CHECK || params.RUN_CONFIG_CHECK || nightly() } }
+            when { expression { return params.RUN_JAR_AUDIT || params.RUN_HUD_CHECK || params.RUN_CONFIG_CHECK } }
             steps {
-                // Jenkins verifies SSH host keys against the agent's known_hosts and refuses to
-                // connect to a host it has never seen — "No ED25519 host key is known for
-                // github.com". Seed it from GitHub's own published key list rather than weakening
-                // verification or pinning keys that will eventually rotate. Runs on the agent,
-                // because that is where the clone happens, and re-runs harmlessly.
+                // Jenkins verifies SSH host keys against the agent's known_hosts and refuses a host
+                // it has never seen. Seed it from GitHub's published list rather than weakening
+                // verification or pinning keys that eventually rotate. No python3 here: the stock
+                // agent image does not have it.
                 sh '''
                     set -e
                     mkdir -p ~/.ssh && chmod 700 ~/.ssh
                     touch ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
                     if ! grep -q "^github.com " ~/.ssh/known_hosts 2>/dev/null; then
                         curl -sS https://api.github.com/meta \
-                            | tr ',' '\n' \
+                            | tr ',' '\\n' \
                             | grep -oE '"(ssh-[a-z0-9]+|ecdsa-sha2-nistp256) [A-Za-z0-9+/=]+"' \
                             | tr -d '"' | sed 's/^/github.com /' >> ~/.ssh/known_hosts
                         echo "seeded known_hosts with GitHub's published host keys"
                     fi
-
-                    # Report the agent's capabilities in one go. The harness needs all of these, and
-                    # discovering them one failed build at a time is slow. Non-fatal on purpose: the
-                    # point is a complete list, not the first missing item.
-                    echo "--- agent capabilities"
-                    echo "    whoami: $(whoami)   HOME: $HOME"
-                    for tool in python3 java curl git Xvfb xdotool magick import convert ffmpeg; do
-                        if command -v "$tool" >/dev/null 2>&1; then
-                            echo "    ok      $tool"
-                        else
-                            echo "    MISSING $tool"
-                        fi
-                    done
-                    echo "--- end capabilities"
                 '''
                 dir('verify') {
                     checkout([$class: 'GitSCM',
@@ -178,55 +190,49 @@ pipeline {
                             url: 'git@github.com:SaolGhra/armor-hud-verify.git',
                             credentialsId: 'armor-hud-verify-key']]])
                 }
-                // Record which harness produced the results. A copied or stale harness is otherwise
-                // invisible in the log, and its output looks exactly like a current one.
+                // Record which harness produced the results: a stale checkout is otherwise invisible
+                // and its output looks exactly like a current one.
                 sh 'cd verify && git rev-parse --short HEAD | sed "s/^/harness /"'
             }
         }
 
-        // Static audit of every built jar: manifest shape, java target, guard branches, resource
-        // paths, no test scaffolding. Seconds, no game launch — cheap enough for every build.
         stage('Audit jars') {
             when { expression { return params.RUN_JAR_AUDIT } }
             steps {
                 sh '''
                     set -e
-                    # Agents here are disposable containers, so python3 is installed per build rather
-                    # than baked into an image or installed on the host — packages on the host are not
-                    # in the container, which is why an earlier attempt at that changed nothing.
-                    # Nothing persists: the container is discarded when the build ends.
+                    export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
+                    export PATH="$JAVA_HOME/bin:$PATH"
+                    # Agents are disposable containers, so python3 is installed per build rather than
+                    # baked into an image or installed on the host — host packages are not in the
+                    # container. Nothing persists: the container goes away with the build.
                     if ! command -v python3 >/dev/null 2>&1; then
                         echo "installing python3 (absent from this agent image)"
                         if command -v apt-get >/dev/null 2>&1; then
                             apt-get update -qq && apt-get install -y -qq python3 >/dev/null
                         elif command -v apk >/dev/null 2>&1; then
                             apk add --no-cache python3 >/dev/null
-                        elif command -v dnf >/dev/null 2>&1; then
-                            dnf install -y -q python3 >/dev/null
                         fi
                         command -v python3 >/dev/null || {
-                            echo "!! could not install python3 — the jar audit needs it"
-                            echo "   bake it into the agent image, or drop RUN_JAR_AUDIT"
-                            exit 1
-                        }
-                        echo "python3 $(python3 --version 2>&1 | cut -d' ' -f2) ready"
+                            echo "!! could not install python3 — the jar audit needs it"; exit 1; }
                     fi
-                    export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
-                    export PATH="$JAVA_HOME/bin:$PATH"
-                    # The harness is cloned beside the project, not inside it, so it cannot derive
-                    # the project root from its own location.
                     export ARMOR_HUD_ROOT="$WORKSPACE"
-                    python3 verify/audit_jars.py
+                    python3 verify/audit_jars.py | tee build/audit.txt
                 '''
+                script {
+                    def line = sh(script: "grep -E 'jars,' build/audit.txt | tail -1", returnStdout: true).trim()
+                    notify("Jar audit: ${line}", "build #${env.BUILD_NUMBER}",
+                           line.contains('0 failed') ? 'white_check_mark' : 'x',
+                           line.contains('0 failed') ? 'default' : 'high')
+                }
             }
+            post { always { archiveArtifacts artifacts: 'build/audit.txt', allowEmptyArchive: true } }
         }
 
-        // In-world HUD assertions. Each node launches a real client twice (modded + no-mod baseline)
-        // on a private Xvfb display under software GL, so this is slow — roughly 90 minutes for the
-        // whole matrix. Off by default; run it nightly or before a release, not on every push.
         stage('HUD check') {
-            when { expression { return params.RUN_HUD_CHECK || nightly() } }
+            when { expression { return params.RUN_HUD_CHECK } }
             steps {
+                script { notify("HUD check started", "37 nodes, software GL — this takes a while", 'hourglass') }
                 sh '''
                     set -e
                     export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
@@ -234,62 +240,121 @@ pipeline {
                     export ARMOR_HUD_HEADLESS=1
                     export ARMOR_HUD_ROOT="$WORKSPACE"
 
-                    # The assertions and the world generator are Python. This stage can run without
-                    # the audit stage, so it cannot rely on that one having installed it.
-                    command -v python3 >/dev/null 2>&1 || {
-                        apt-get update -qq && apt-get install -y -qq python3 >/dev/null
-                    }
-
-                    # This check launches a real client per node, so the agent needs a display
-                    # server, an input tool, ImageMagick and a GL stack. Agents here are disposable
-                    # containers, so these are installed per run rather than baked into an image.
-                    #
-                    # That is worth it here in a way it would not be for a per-commit stage: this
-                    # check runs for well over an hour, so a couple of minutes of apt is noise, and
-                    # it saves maintaining a custom agent image.
+                    # This check launches a real client per node, so the agent needs a display server,
+                    # an input tool, ImageMagick and a GL stack. Installed per run because agents are
+                    # disposable; worth it here in a way it would not be for a per-commit stage, since
+                    # the check itself runs for hours.
                     #
                     # The X libraries are for LWJGL: it ships its own natives but links against the
                     # system X client libraries, and Minecraft dies at window creation without them.
-                    if ! command -v Xvfb >/dev/null 2>&1; then
+                    if ! command -v Xvfb >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
                         echo "installing the display stack (absent from this agent image)"
                         apt-get update -qq
                         apt-get install -y -qq \
-                            xvfb xdotool imagemagick \
+                            python3 xvfb xdotool imagemagick \
                             libgl1-mesa-dri libglu1-mesa mesa-utils \
                             libxext6 libxrender1 libxtst6 libxi6 libxrandr2 \
                             libxcursor1 libxinerama1 libxxf86vm1 >/dev/null
                     fi
                     for tool in Xvfb xdotool import python3; do
                         command -v "$tool" >/dev/null 2>&1 || {
-                            echo "!! $tool still missing after install — cannot run the HUD check"
-                            exit 1
-                        }
+                            echo "!! $tool still missing after install — cannot run the HUD check"; exit 1; }
                     done
-                    echo "display stack ready: $(Xvfb -help 2>&1 | head -1 | cut -c1-40)"
 
-                    verify/hud_ingame.sh neoforge
-                    verify/hud_ingame.sh fabric
-                    verify/hud_ingame.sh forge
+                    { verify/hud_ingame.sh neoforge
+                      verify/hud_ingame.sh fabric
+                      verify/hud_ingame.sh forge
+                    } | tee build/hud-check.txt
                 '''
+                script {
+                    def pass = sh(script: "grep -c '  PASS' build/hud-check.txt || echo 0", returnStdout: true).trim()
+                    def fail = sh(script: "grep -c '  FAIL' build/hud-check.txt || echo 0", returnStdout: true).trim()
+                    notify("HUD check: ${pass} passed, ${fail} failed", "build #${env.BUILD_NUMBER}",
+                           fail == '0' ? 'white_check_mark' : 'rotating_light',
+                           fail == '0' ? 'default' : 'high')
+                }
             }
-            post { always { archiveArtifacts artifacts: 'build/hud-screenshots/*.png', allowEmptyArchive: true } }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'build/hud-check.txt,build/hud-screenshots/*.png', allowEmptyArchive: true
+                }
+            }
         }
 
         stage('Collect jars') {
             steps {
-                // chiseledBuild collects remapped jars into build/libs/<mod.version>/<loader>/.
                 archiveArtifacts artifacts: 'build/libs/**/*.jar', fingerprint: true, excludes: '**/*-sources.jar'
             }
         }
 
-        stage('Publish to Modrinth') {
-            when { expression { return params.PUBLISH } }
+        // Publishing is opt-in and never part of a verification run: it happens when someone has
+        // looked at the results and decided they are good.
+        stage('Publish to GitHub') {
+            when { expression { return params.PUBLISH_GITHUB } }
             steps {
+                script { notify("Publishing to GitHub…", "release for the current mod.version", 'rocket') }
+                // The changelog goes through a file rather than the command line: release notes are
+                // multi-line and contain quotes and backticks, which would be mangled or would break
+                // the shell if interpolated into it.
+                writeFile file: 'build/changelog.md', text: params.CHANGELOG ?: ''
+                withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
+                    sh '''
+                        set -e
+                        VERSION=$(grep -E '^mod\\.version=' gradle.properties | cut -d= -f2)
+                        REPO="SaolGhra/Armor-Hud"
+                        TAG="v$VERSION"
+                        echo "creating release $TAG on $REPO"
+
+                        # Refuse rather than silently make a second release for a tag that exists.
+                        EXISTING=$(curl -sS -o /dev/null -w '%{http_code}' \
+                            -H "Authorization: Bearer $GH_TOKEN" \
+                            "https://api.github.com/repos/$REPO/releases/tags/$TAG")
+                        if [ "$EXISTING" = "200" ]; then
+                            echo "!! release $TAG already exists — bump mod.version or delete it first"
+                            exit 1
+                        fi
+
+                        # Build the request body with python so the changelog is JSON-escaped properly.
+                        command -v python3 >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq python3 >/dev/null; }
+                        python3 - "$TAG" "$VERSION" > build/release.json <<'PY'
+import json, sys
+tag, version = sys.argv[1], sys.argv[2]
+body = open('build/changelog.md').read().strip() or f'Armor HUD {version}'
+print(json.dumps({'tag_name': tag, 'name': f'Armor HUD {version}',
+                  'body': body, 'draft': False, 'prerelease': False}))
+PY
+                        UPLOAD=$(curl -sS -X POST \
+                            -H "Authorization: Bearer $GH_TOKEN" \
+                            -H "Content-Type: application/json" \
+                            -d @build/release.json \
+                            "https://api.github.com/repos/$REPO/releases" \
+                            | python3 -c "import json,sys; print(json.load(sys.stdin)['upload_url'].split('{')[0])")
+
+                        # Attach every built jar, sources excluded.
+                        COUNT=0
+                        for jar in build/libs/*/*.jar; do
+                            case "$jar" in *-sources.jar) continue;; esac
+                            name=$(basename "$jar")
+                            curl -sS -X POST \
+                                -H "Authorization: Bearer $GH_TOKEN" \
+                                -H "Content-Type: application/java-archive" \
+                                --data-binary @"$jar" \
+                                "$UPLOAD?name=$name" >/dev/null
+                            COUNT=$((COUNT+1))
+                        done
+                        echo "attached $COUNT jars to $TAG"
+                    '''
+                }
+                script { notify("GitHub release published", "check the releases page", 'white_check_mark') }
+            }
+        }
+
+        stage('Publish to Modrinth') {
+            when { expression { return params.PUBLISH_MODRINTH } }
+            steps {
+                script { notify("Publishing to Modrinth…", "uploading the matrix", 'rocket') }
+                writeFile file: 'build/changelog.md', text: params.CHANGELOG ?: ''
                 withCredentials([string(credentialsId: 'modrinth-token', variable: 'MODRINTH_TOKEN')]) {
-                    // The changelog goes through a file rather than straight onto the command line:
-                    // release notes are multi-line and contain quotes and backticks, which would be
-                    // mangled (or would break the shell) if interpolated into the sh string.
-                    writeFile file: 'build/changelog.md', text: params.CHANGELOG ?: ''
                     sh '''
                         set -e
                         export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
@@ -302,21 +367,25 @@ pipeline {
                         fi
                     '''
                 }
+                script { notify("Modrinth publish done", "every version uploaded", 'white_check_mark') }
             }
         }
     }
 
     post {
-        always {
+        success {
             script {
-                def status = currentBuild.currentResult
-                if (params.NOTIFY_URL?.trim()) {
-                    sh """curl -sS -X POST -H 'Content-Type: application/json' \
-                        -d '{"job":"${env.JOB_NAME}","build":${env.BUILD_NUMBER},"status":"${status}"}' \
-                        '${params.NOTIFY_URL}' || true"""
-                }
+                notify("Armor HUD #${env.BUILD_NUMBER} SUCCESS",
+                       "${currentBuild.durationString.replace(' and counting', '')}",
+                       'white_check_mark')
             }
-            cleanWs()
         }
+        failure {
+            script {
+                notify("Armor HUD #${env.BUILD_NUMBER} FAILED",
+                       "${env.BUILD_URL}", 'rotating_light', 'high')
+            }
+        }
+        always { cleanWs() }
     }
 }
