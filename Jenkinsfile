@@ -11,6 +11,13 @@
 // TARGET_MINECRAFT_VERSION param that writes versions/<mc>/gradle.properties and appends the version
 // in settings.gradle.kts before running chiseledBuild.
 
+// True when Jenkins itself started this build on a schedule, rather than a person clicking Build.
+// This is how the nightly run turns on the expensive checks without the parameterized-scheduler
+// plugin: a manual build stays fast, a timed one verifies everything.
+def nightly() {
+    return currentBuild.getBuildCauses().any { it._class?.contains('TimerTrigger') }
+}
+
 pipeline {
     agent { label 'linux' }
 
@@ -33,6 +40,10 @@ pipeline {
         string(name: 'NOTIFY_URL', defaultValue: 'https://notify.saolghra.co.uk/builds',
                 description: 'Webhook pinged on success/failure.')
     }
+
+    // Uncomment to have the full verification run itself overnight. Deliberately off by default:
+    // this is roughly two hours of agent time every night, which is a commitment to make on purpose.
+    //   triggers { cron('H 3 * * *') }
 
     options {
         timestamps()
@@ -121,7 +132,7 @@ pipeline {
         // tooling, not part of the published mod. Cloned read-only with a deploy key scoped to that
         // one repo, so a compromised agent cannot push anywhere.
         stage('Fetch verification harness') {
-            when { expression { return params.RUN_JAR_AUDIT || params.RUN_HUD_CHECK || params.RUN_CONFIG_CHECK } }
+            when { expression { return params.RUN_JAR_AUDIT || params.RUN_HUD_CHECK || params.RUN_CONFIG_CHECK || nightly() } }
             steps {
                 dir('verify') {
                     checkout([$class: 'GitSCM',
@@ -157,7 +168,7 @@ pipeline {
         // on a private Xvfb display under software GL, so this is slow — roughly 90 minutes for the
         // whole matrix. Off by default; run it nightly or before a release, not on every push.
         stage('HUD check') {
-            when { expression { return params.RUN_HUD_CHECK } }
+            when { expression { return params.RUN_HUD_CHECK || nightly() } }
             steps {
                 sh '''
                     set -e
