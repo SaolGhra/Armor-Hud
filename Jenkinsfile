@@ -185,13 +185,26 @@ pipeline {
             steps {
                 sh '''
                     set -e
-                    # The harness is Python throughout. Say so plainly rather than failing later with
-                    # a "python3: not found" buried in a stack trace.
-                    command -v python3 >/dev/null || {
-                        echo "!! python3 is not installed on this agent — the verification harness needs it"
-                        echo "   install with: apt-get install -y python3"
-                        exit 1
-                    }
+                    # Agents here are disposable containers, so python3 is installed per build rather
+                    # than baked into an image or installed on the host — packages on the host are not
+                    # in the container, which is why an earlier attempt at that changed nothing.
+                    # Nothing persists: the container is discarded when the build ends.
+                    if ! command -v python3 >/dev/null 2>&1; then
+                        echo "installing python3 (absent from this agent image)"
+                        if command -v apt-get >/dev/null 2>&1; then
+                            apt-get update -qq && apt-get install -y -qq python3 >/dev/null
+                        elif command -v apk >/dev/null 2>&1; then
+                            apk add --no-cache python3 >/dev/null
+                        elif command -v dnf >/dev/null 2>&1; then
+                            dnf install -y -q python3 >/dev/null
+                        fi
+                        command -v python3 >/dev/null || {
+                            echo "!! could not install python3 — the jar audit needs it"
+                            echo "   bake it into the agent image, or drop RUN_JAR_AUDIT"
+                            exit 1
+                        }
+                        echo "python3 $(python3 --version 2>&1 | cut -d' ' -f2) ready"
+                    fi
                     export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
                     export PATH="$JAVA_HOME/bin:$PATH"
                     # The harness is cloned beside the project, not inside it, so it cannot derive
@@ -214,6 +227,23 @@ pipeline {
                     export PATH="$JAVA_HOME/bin:$PATH"
                     export ARMOR_HUD_HEADLESS=1
                     export ARMOR_HUD_ROOT="$WORKSPACE"
+
+                    # This check launches a real client per node, so it needs a display server, an
+                    # input tool and ImageMagick — none of which are in the stock agent image. Unlike
+                    # python3 these are not worth installing per build: it is a GL stack plus mesa,
+                    # and software rendering in a container makes an already slow check slower.
+                    # Bake them into a custom agent image, or run this locally with
+                    # ARMOR_HUD_HEADLESS=1, which is what it was built for.
+                    missing=""
+                    for tool in Xvfb xdotool import; do
+                        command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
+                    done
+                    if [ -n "$missing" ]; then
+                        echo "!! this agent cannot run the in-game HUD check — missing:$missing"
+                        echo "   it needs an image with xvfb, xdotool, imagemagick and mesa"
+                        exit 1
+                    fi
+
                     verify/hud_ingame.sh neoforge
                     verify/hud_ingame.sh fabric
                     verify/hud_ingame.sh forge
