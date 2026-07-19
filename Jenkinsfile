@@ -228,21 +228,38 @@ pipeline {
                     export ARMOR_HUD_HEADLESS=1
                     export ARMOR_HUD_ROOT="$WORKSPACE"
 
-                    # This check launches a real client per node, so it needs a display server, an
-                    # input tool and ImageMagick — none of which are in the stock agent image. Unlike
-                    # python3 these are not worth installing per build: it is a GL stack plus mesa,
-                    # and software rendering in a container makes an already slow check slower.
-                    # Bake them into a custom agent image, or run this locally with
-                    # ARMOR_HUD_HEADLESS=1, which is what it was built for.
-                    missing=""
-                    for tool in Xvfb xdotool import; do
-                        command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
-                    done
-                    if [ -n "$missing" ]; then
-                        echo "!! this agent cannot run the in-game HUD check — missing:$missing"
-                        echo "   it needs an image with xvfb, xdotool, imagemagick and mesa"
-                        exit 1
+                    # The assertions and the world generator are Python. This stage can run without
+                    # the audit stage, so it cannot rely on that one having installed it.
+                    command -v python3 >/dev/null 2>&1 || {
+                        apt-get update -qq && apt-get install -y -qq python3 >/dev/null
+                    }
+
+                    # This check launches a real client per node, so the agent needs a display
+                    # server, an input tool, ImageMagick and a GL stack. Agents here are disposable
+                    # containers, so these are installed per run rather than baked into an image.
+                    #
+                    # That is worth it here in a way it would not be for a per-commit stage: this
+                    # check runs for well over an hour, so a couple of minutes of apt is noise, and
+                    # it saves maintaining a custom agent image.
+                    #
+                    # The X libraries are for LWJGL: it ships its own natives but links against the
+                    # system X client libraries, and Minecraft dies at window creation without them.
+                    if ! command -v Xvfb >/dev/null 2>&1; then
+                        echo "installing the display stack (absent from this agent image)"
+                        apt-get update -qq
+                        apt-get install -y -qq \
+                            xvfb xdotool imagemagick \
+                            libgl1-mesa-dri libglu1-mesa mesa-utils \
+                            libxext6 libxrender1 libxtst6 libxi6 libxrandr2 \
+                            libxcursor1 libxinerama1 libxxf86vm1 >/dev/null
                     fi
+                    for tool in Xvfb xdotool import python3; do
+                        command -v "$tool" >/dev/null 2>&1 || {
+                            echo "!! $tool still missing after install — cannot run the HUD check"
+                            exit 1
+                        }
+                    done
+                    echo "display stack ready: $(Xvfb -help 2>&1 | head -1 | cut -c1-40)"
 
                     verify/hud_ingame.sh neoforge
                     verify/hud_ingame.sh fabric
