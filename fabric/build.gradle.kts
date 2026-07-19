@@ -39,7 +39,16 @@ configurations {
 }
 
 repositories {
-    maven("https://maven.terraformersmc.com/releases")
+    // Mod Menu comes from Modrinth's maven rather than maven.terraformersmc.com, which truncates
+    // artifact downloads ("end of response with N bytes missing") — reproducible with curl, not
+    // specific to CI. A machine that built before does not notice because the jar is already in the
+    // Gradle cache; any cold cache fails, which is every CI run. Note that a fallback repository
+    // would NOT help here: Gradle resolves the module from the first repo that has its metadata and
+    // does not try elsewhere when the artifact download itself fails.
+    exclusiveContent {
+        forRepository { maven("https://api.modrinth.com/maven") }
+        filter { includeGroup("maven.modrinth") }
+    }
 }
 
 dependencies {
@@ -51,7 +60,7 @@ dependencies {
     // API interfaces, so compile against it without dragging in its transitive deps: across the eight
     // ModMenu majors this matrix spans, those pull mods from mavens we otherwise don't need (e.g. 9.x
     // wants eu.pb4:placeholder-api). isTransitive=false keeps the version matrix resolvable.
-    modCompileOnly("com.terraformersmc:modmenu:${common.mod.dep("modmenu")}") { isTransitive = false }
+    modCompileOnly("maven.modrinth:modmenu:${common.mod.dep("modmenu")}") { isTransitive = false }
 
     commonBundle(project(common.path, "namedElements")) { isTransitive = false }
     shadowBundle(project(common.path, "transformProductionFabric")) { isTransitive = false }
