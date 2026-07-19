@@ -22,6 +22,14 @@ pipeline {
                         'Left empty, the version pages link to the GitHub releases page instead.')
         booleanParam(name: 'RUN_SCREENSHOT_TESTS', defaultValue: false,
                 description: 'Run the Fabric Client GameTest screenshot tests (needs a display / Xvfb).')
+        booleanParam(name: 'RUN_JAR_AUDIT', defaultValue: true,
+                description: 'Static audit of every built jar. Seconds, no game launch.')
+        booleanParam(name: 'RUN_HUD_CHECK', defaultValue: false,
+                description: 'In-world HUD pixel assertions across the whole matrix. Launches a real ' +
+                        'client per node under software GL — roughly 90 minutes. Nightly / pre-release.')
+        booleanParam(name: 'RUN_CONFIG_CHECK', defaultValue: false,
+                description: 'Drive the mod list to the config screen using real jars in a launcher. ' +
+                        'Needs PrismLauncher instances on the agent — not yet provisioned.')
         string(name: 'NOTIFY_URL', defaultValue: 'https://notify.saolghra.co.uk/builds',
                 description: 'Webhook pinged on success/failure.')
     }
@@ -107,6 +115,58 @@ pipeline {
                 '''
             }
             post { always { archiveArtifacts artifacts: '**/run/clientGameTest/screenshots/*.png', allowEmptyArchive: true } }
+        }
+
+        // The verification harness lives in a separate private repo, deliberately: it is test
+        // tooling, not part of the published mod. Cloned read-only with a deploy key scoped to that
+        // one repo, so a compromised agent cannot push anywhere.
+        stage('Fetch verification harness') {
+            when { expression { return params.RUN_JAR_AUDIT || params.RUN_HUD_CHECK || params.RUN_CONFIG_CHECK } }
+            steps {
+                dir('verify') {
+                    checkout([$class: 'GitSCM',
+                        branches: [[name: '*/main']],
+                        userRemoteConfigs: [[
+                            url: 'git@github.com:SaolGhra/armor-hud-verify.git',
+                            credentialsId: 'armor-hud-verify-key']]])
+                }
+                // Record which harness produced the results. A copied or stale harness is otherwise
+                // invisible in the log, and its output looks exactly like a current one.
+                sh 'cd verify && git rev-parse --short HEAD | sed "s/^/harness /"'
+            }
+        }
+
+        // Static audit of every built jar: manifest shape, java target, guard branches, resource
+        // paths, no test scaffolding. Seconds, no game launch — cheap enough for every build.
+        stage('Audit jars') {
+            when { expression { return params.RUN_JAR_AUDIT } }
+            steps {
+                sh '''
+                    set -e
+                    export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
+                    export PATH="$JAVA_HOME/bin:$PATH"
+                    python3 verify/audit_jars.py
+                '''
+            }
+        }
+
+        // In-world HUD assertions. Each node launches a real client twice (modded + no-mod baseline)
+        // on a private Xvfb display under software GL, so this is slow — roughly 90 minutes for the
+        // whole matrix. Off by default; run it nightly or before a release, not on every push.
+        stage('HUD check') {
+            when { expression { return params.RUN_HUD_CHECK } }
+            steps {
+                sh '''
+                    set -e
+                    export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
+                    export PATH="$JAVA_HOME/bin:$PATH"
+                    export ARMOR_HUD_HEADLESS=1
+                    verify/hud_ingame.sh neoforge
+                    verify/hud_ingame.sh fabric
+                    verify/hud_ingame.sh forge
+                '''
+            }
+            post { always { archiveArtifacts artifacts: 'build/hud-screenshots/*.png', allowEmptyArchive: true } }
         }
 
         stage('Collect jars') {
