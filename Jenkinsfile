@@ -145,8 +145,9 @@ pipeline {
                     touch ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
                     if ! grep -q "^github.com " ~/.ssh/known_hosts 2>/dev/null; then
                         curl -sS https://api.github.com/meta \
-                            | python3 -c "import json,sys; [print('github.com', k) for k in json.load(sys.stdin)['ssh_keys']]" \
-                            >> ~/.ssh/known_hosts
+                            | tr ',' '\n' \
+                            | grep -oE '"(ssh-[a-z0-9]+|ecdsa-sha2-nistp256) [A-Za-z0-9+/=]+"' \
+                            | tr -d '"' | sed 's/^/github.com /' >> ~/.ssh/known_hosts
                         echo "seeded known_hosts with GitHub's published host keys"
                     fi
                 '''
@@ -170,6 +171,13 @@ pipeline {
             steps {
                 sh '''
                     set -e
+                    # The harness is Python throughout. Say so plainly rather than failing later with
+                    # a "python3: not found" buried in a stack trace.
+                    command -v python3 >/dev/null || {
+                        echo "!! python3 is not installed on this agent — the verification harness needs it"
+                        echo "   install with: apt-get install -y python3"
+                        exit 1
+                    }
                     export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
                     export PATH="$JAVA_HOME/bin:$PATH"
                     # The harness is cloned beside the project, not inside it, so it cannot derive
