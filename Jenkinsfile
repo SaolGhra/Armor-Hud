@@ -134,6 +134,22 @@ pipeline {
         stage('Fetch verification harness') {
             when { expression { return params.RUN_JAR_AUDIT || params.RUN_HUD_CHECK || params.RUN_CONFIG_CHECK || nightly() } }
             steps {
+                // Jenkins verifies SSH host keys against the agent's known_hosts and refuses to
+                // connect to a host it has never seen — "No ED25519 host key is known for
+                // github.com". Seed it from GitHub's own published key list rather than weakening
+                // verification or pinning keys that will eventually rotate. Runs on the agent,
+                // because that is where the clone happens, and re-runs harmlessly.
+                sh '''
+                    set -e
+                    mkdir -p ~/.ssh && chmod 700 ~/.ssh
+                    touch ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+                    if ! grep -q "^github.com " ~/.ssh/known_hosts 2>/dev/null; then
+                        curl -sS https://api.github.com/meta \
+                            | python3 -c "import json,sys; [print('github.com', k) for k in json.load(sys.stdin)['ssh_keys']]" \
+                            >> ~/.ssh/known_hosts
+                        echo "seeded known_hosts with GitHub's published host keys"
+                    fi
+                '''
                 dir('verify') {
                     checkout([$class: 'GitSCM',
                         branches: [[name: '*/main']],
