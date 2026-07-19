@@ -150,6 +150,20 @@ pipeline {
                             | tr -d '"' | sed 's/^/github.com /' >> ~/.ssh/known_hosts
                         echo "seeded known_hosts with GitHub's published host keys"
                     fi
+
+                    # Report the agent's capabilities in one go. The harness needs all of these, and
+                    # discovering them one failed build at a time is slow. Non-fatal on purpose: the
+                    # point is a complete list, not the first missing item.
+                    echo "--- agent capabilities"
+                    echo "    whoami: $(whoami)   HOME: $HOME"
+                    for tool in python3 java curl git Xvfb xdotool magick import convert ffmpeg; do
+                        if command -v "$tool" >/dev/null 2>&1; then
+                            echo "    ok      $tool"
+                        else
+                            echo "    MISSING $tool"
+                        fi
+                    done
+                    echo "--- end capabilities"
                 '''
                 dir('verify') {
                     checkout([$class: 'GitSCM',
