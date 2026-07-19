@@ -34,7 +34,12 @@ pipeline {
     }
 
     environment {
-        GRADLE_USER_HOME = "${WORKSPACE}/.gradle"
+        // Deliberately OUTSIDE the workspace: cleanWs() runs after every build, so a cache under
+        // ${WORKSPACE} is destroyed each time and every run re-downloads Minecraft, the mappings and
+        // every dependency. That is slow, and it makes the build hostage to third-party maven uptime
+        // — a flaky maven.terraformersmc.com (HTTP/2 resets) failed the whole 37-node matrix on a
+        // single optional Mod Menu jar that is already cached on any warm machine.
+        GRADLE_USER_HOME = "${JENKINS_HOME}/.gradle-armor-hud"
         _JAVA_OPTIONS = '-Xmx3G -Xms512M'
     }
 
@@ -60,14 +65,19 @@ pipeline {
 
         stage('Build matrix') {
             steps {
-                sh '''
-                    set -e
-                    export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
-                    export PATH="$JAVA_HOME/bin:$PATH"
-                    # chiseledBuild iterates the whole version x loader matrix from settings.gradle.kts,
-                    # generating each version's source (a direct :loader:version:build would be empty).
-                    ./gradlew chiseledBuild -x runGameTest -x runClientGameTest --stacktrace
-                '''
+                // Retried because the upstream mod mavens are not reliable: a single transient
+                // artifact download failure otherwise reds the entire matrix. The retry costs
+                // nothing on a warm cache, since resolved artifacts are already local.
+                retry(2) {
+                    sh '''
+                        set -e
+                        export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
+                        export PATH="$JAVA_HOME/bin:$PATH"
+                        # chiseledBuild iterates the whole version x loader matrix from settings.gradle.kts,
+                        # generating each version's source (a direct :loader:version:build would be empty).
+                        ./gradlew chiseledBuild -x runGameTest -x runClientGameTest --stacktrace
+                    '''
+                }
             }
         }
 
