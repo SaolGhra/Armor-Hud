@@ -13,13 +13,6 @@
 // ships no Mojang mappings and no Fabric intermediary). A snapshot build would fail for that reason
 // alone, so it is gated on 26.x support landing.
 
-// True when Jenkins started this build on a schedule rather than a person clicking Build. Used to
-// keep the nightly honest: it always runs the full check set regardless of how the parameters were
-// left by the last manual run.
-def nightly() {
-    return currentBuild.getBuildCauses().any { it._class?.contains('TimerTrigger') }
-}
-
 // Push a line to ntfy. Deliberately terse: these are read on a phone, so they lead with the thing
 // worth acting on. Never fails the build — a notification problem is not a build problem.
 def notify(String title, String message, String tags = 'gear', String priority = 'default') {
@@ -87,17 +80,18 @@ pipeline {
         _JAVA_OPTIONS = '-Xmx3G -Xms512M'
     }
 
-    // The full verification runs itself overnight, so the matrix is checked whether or not anyone
-    // remembers to ask. H 3 means "some minute of the 3am hour", chosen by Jenkins so it does not
-    // collide with everything else scheduled on the hour.
-    triggers { cron('H 3 * * *') }
+    // Build when something actually changes, not on a clock. A nightly would re-verify code that
+    // has not moved since the last run — hours of agent time to re-confirm a known answer. Polling
+    // rather than a webhook so nothing has to be configured on the GitHub side, and so it keeps
+    // working if the endpoint moves; the cost is that a push is picked up within five minutes
+    // rather than instantly, which does not matter for a run measured in hours.
+    triggers { pollSCM('H/5 * * * *') }
 
     stages {
         stage('Setup JDK 21') {
             steps {
                 script {
-                    notify("Armor HUD #${env.BUILD_NUMBER} started",
-                           nightly() ? 'nightly verification' : 'build + verify', 'hammer')
+                    notify("Armor HUD #${env.BUILD_NUMBER} started", 'build + verify', 'hammer')
                 }
                 sh '''
                     set -e
