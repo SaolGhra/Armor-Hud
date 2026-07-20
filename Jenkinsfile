@@ -343,8 +343,25 @@ pipeline {
                     ./gradlew ":$LOADER:$MC:build" -x test --stacktrace
 
                     echo "=== running one node: $LOADER $MC"
-                    export ARMOR_HUD_HEADLESS=1
+                    # Software rendering needs longer between "in the world" and a frame worth
+                    # asserting on than a GPU does.
+                    export ARMOR_HUD_HEADLESS=1 SETTLE="${SETTLE:-60}"
                     verify/hud_ingame.sh "$LOADER" "$MC" || true
+
+                    # Describe the capture in the console. Artifacts have repeatedly not been there
+                    # when needed, and "is the frame black, a loading screen, or the world?" is the
+                    # whole question when every bar reads zero pixels.
+                    echo "=== capture stats"
+                    SHOT="build/hud-screenshots/$LOADER-$MC-hud.png"
+                    if [ -f "$SHOT" ]; then
+                        magick identify "$SHOT" 2>/dev/null || identify "$SHOT" 2>/dev/null
+                        echo "    mean brightness (0=black, 65535=white):"
+                        magick "$SHOT" -format "      %[mean]" info: 2>/dev/null && echo
+                        echo "    distinct colours (a loading screen has very few):"
+                        magick "$SHOT" -format "      %k" info: 2>/dev/null && echo
+                    else
+                        echo "    (no capture written)"
+                    fi
 
                     echo "=== client log tail"
                     tail -40 build/hud-screenshots/$LOADER-$MC.log 2>/dev/null || echo "(no client log)"
