@@ -62,6 +62,12 @@ pipeline {
                 description: 'Release notes. Used as the GitHub release body and as the Modrinth ' +
                         'changelog on every uploaded version. Markdown.')
 
+        booleanParam(name: 'DIAGNOSE_HUD', defaultValue: false,
+                description: 'Debug loop for the HUD check: skips the matrix build, probes the ' +
+                        'agent\'s OpenGL, and runs ONE node. Minutes instead of an hour.')
+        string(name: 'DIAGNOSE_NODE', defaultValue: 'neoforge 1.21.11',
+                description: 'Which node DIAGNOSE_HUD runs, as "<loader> <mc>".')
+
         string(name: 'NOTIFY_URL', defaultValue: 'https://notify.saolghra.co.uk/builds',
                 description: 'ntfy topic for progress notifications. Empty disables them.')
     }
@@ -111,6 +117,7 @@ pipeline {
         }
 
         stage('Build matrix') {
+            when { expression { return !params.DIAGNOSE_HUD } }
             steps {
                 // Retried because the upstream mod mavens are not reliable: a single transient
                 // artifact download failure otherwise reds the entire matrix.
@@ -133,6 +140,7 @@ pipeline {
         }
 
         stage('Unit tests') {
+            when { expression { return !params.DIAGNOSE_HUD } }
             steps {
                 sh '''
                     set -e
@@ -165,7 +173,7 @@ pipeline {
         // The verification harness lives in a separate private repo: it is test tooling, not part of
         // the published mod. Cloned read-only with a deploy key scoped to that one repo.
         stage('Fetch verification harness') {
-            when { expression { return params.RUN_JAR_AUDIT || params.RUN_HUD_CHECK || params.RUN_CONFIG_CHECK } }
+            when { expression { return params.RUN_JAR_AUDIT || params.RUN_HUD_CHECK || params.RUN_CONFIG_CHECK || params.DIAGNOSE_HUD } }
             steps {
                 // Jenkins verifies SSH host keys against the agent's known_hosts and refuses a host
                 // it has never seen. Seed it from GitHub's published list rather than weakening
@@ -197,7 +205,7 @@ pipeline {
         }
 
         stage('Audit jars') {
-            when { expression { return params.RUN_JAR_AUDIT } }
+            when { expression { return params.RUN_JAR_AUDIT && !params.DIAGNOSE_HUD } }
             steps {
                 sh '''
                     set -e
@@ -230,7 +238,7 @@ pipeline {
         }
 
         stage('HUD check') {
-            when { expression { return params.RUN_HUD_CHECK } }
+            when { expression { return params.RUN_HUD_CHECK && !params.DIAGNOSE_HUD } }
             steps {
                 script { notify("HUD check started", "37 nodes, software GL — this takes a while", 'hourglass') }
                 sh '''
@@ -293,7 +301,70 @@ pipeline {
             }
         }
 
+        // Fast debug loop for the HUD check. The full stage rebuilds 37 nodes before it gets
+        // anywhere near a client, which is a poor way to chase a problem that shows up in the first
+        // ten seconds of one. This skips the matrix, proves the display and GL stack on its own
+        // terms, then runs exactly one node.
+        stage('Diagnose HUD') {
+            when { expression { return params.DIAGNOSE_HUD } }
+            steps {
+                sh '''
+                    set -e
+                    export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
+                    export PATH="$JAVA_HOME/bin:$PATH"
+                    export ARMOR_HUD_ROOT="$WORKSPACE"
+
+                    if ! command -v Xvfb >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+                        echo "=== installing the display stack"
+                        apt-get update -qq
+                        apt-get install -y -qq \
+                            python3 xvfb xdotool imagemagick \
+                            libgl1-mesa-dri libglu1-mesa mesa-utils \
+                            libxext6 libxrender1 libxtst6 libxi6 libxrandr2 \
+                            libxcursor1 libxinerama1 libxxf86vm1 >/dev/null
+                    fi
+
+                    # Prove the GL stack independently of Minecraft. If llvmpipe cannot offer a 3.2
+                    # core profile then no amount of Minecraft debugging matters, and glxinfo says so
+                    # in one line — where the client only ever says "never went live".
+                    echo "=== GL probe"
+                    Xvfb :88 -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
+                    XVFB_PID=$!
+                    sleep 3
+                    if DISPLAY=:88 LIBGL_ALWAYS_SOFTWARE=1 glxinfo -B 2>&1 | head -20; then
+                        echo "--- glxinfo ran"
+                    else
+                        echo "!! glxinfo failed — the agent has no usable GL"
+                    fi
+                    DISPLAY=:88 LIBGL_ALWAYS_SOFTWARE=1 glxinfo 2>/dev/null \
+                        | grep -iE "OpenGL core profile version|OpenGL version|renderer string" | head -3
+                    kill $XVFB_PID 2>/dev/null || true
+
+                    # Build only the node under test. hud_ingame.sh sets it active and runs its
+                    # client, so chiseledBuild is unnecessary here — that is the 35 minutes saved.
+                    set -- $DIAGNOSE_NODE
+                    LOADER="$1"; MC="$2"
+                    echo "=== building $LOADER:$MC only"
+                    ./gradlew --console=plain -q "Set active project to $MC"
+                    ./gradlew ":$LOADER:$MC:build" -x test --stacktrace
+
+                    echo "=== running one node: $LOADER $MC"
+                    export ARMOR_HUD_HEADLESS=1
+                    verify/hud_ingame.sh "$LOADER" "$MC" || true
+
+                    echo "=== client log tail"
+                    tail -40 build/hud-screenshots/$LOADER-$MC.log 2>/dev/null || echo "(no client log)"
+                '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'build/hud-screenshots/*', allowEmptyArchive: true
+                }
+            }
+        }
+
         stage('Collect jars') {
+            when { expression { return !params.DIAGNOSE_HUD } }
             steps {
                 archiveArtifacts artifacts: 'build/libs/**/*.jar', fingerprint: true, excludes: '**/*-sources.jar'
             }
