@@ -261,10 +261,18 @@ pipeline {
                             echo "!! $tool still missing after install — cannot run the HUD check"; exit 1; }
                     done
 
+                    # Smoke one node first. If the client cannot start here it cannot start on any
+                    # of them, and finding that out 37 boot-timeouts later wastes hours and usually
+                    # ends with the agent being killed rather than a usable error.
+                    if ! verify/hud_ingame.sh neoforge 1.21.11 | tee build/hud-check.txt; then
+                        echo "!! the first node failed — not attempting the rest"
+                        exit 1
+                    fi
+
                     { verify/hud_ingame.sh neoforge
                       verify/hud_ingame.sh fabric
                       verify/hud_ingame.sh forge
-                    } | tee build/hud-check.txt
+                    } | tee -a build/hud-check.txt
                 '''
                 script {
                     def pass = sh(script: "grep -c '  PASS' build/hud-check.txt || echo 0", returnStdout: true).trim()
@@ -276,7 +284,11 @@ pipeline {
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'build/hud-check.txt,build/hud-screenshots/*.png', allowEmptyArchive: true
+                    // Archive the per-node client logs too, not just the captures. When a node fails
+                    // to reach a live state the reason is only in its log, and cleanWs() removes the
+                    // workspace before anyone can look — which cost three multi-hour runs.
+                    archiveArtifacts artifacts: 'build/hud-check.txt,build/hud-screenshots/*.png,build/hud-screenshots/*.log',
+                                     allowEmptyArchive: true
                 }
             }
         }
