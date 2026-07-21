@@ -381,6 +381,11 @@ pipeline {
                         magick "$SHOT" -format "      %[mean]" info: 2>/dev/null && echo
                         echo "    distinct colours (a loading screen has very few):"
                         magick "$SHOT" -format "      %k" info: 2>/dev/null && echo
+                        # Emit a downscaled copy as base64 so the actual image can be seen from the
+                        # console — artifacts have been unreliable, and "what is in the frame" is the
+                        # whole question. Decode with: grep B64IMG log | cut -d' ' -f2 | base64 -d > x.png
+                        magick "$SHOT" -resize 480x /tmp/diag_small.png 2>/dev/null
+                        echo "B64IMG $(base64 -w0 /tmp/diag_small.png 2>/dev/null)"
                     else
                         echo "    (no capture written)"
                     fi
