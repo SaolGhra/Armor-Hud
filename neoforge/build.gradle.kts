@@ -115,6 +115,12 @@ val legacyManifest = nfMajor < 20 || (nfMajor == 20 && nfMinor < 5)   // filenam
 val legacyDeps = nfMajor < 20 || (nfMajor == 20 && nfMinor < 4)
 val requiredField = if (legacyDeps) "mandatory = true" else "type = \"required\""
 
+// The verification-only screenshot mixin is registered only in verify builds, via the same
+// armorhud.verify flag that compiles the mixin CLASS in. Templated through the manifest rather than
+// Stonecutter-guarded because Stonecutter does not toggle this .toml. Release: empty, no mixin.
+val verifyMixins = if (providers.gradleProperty("armorhud.verify").isPresent)
+    "[[mixins]]\nconfig = \"armor_hud-verify.mixins.json\"" else ""
+
 tasks.processResources {
     properties(listOf("META-INF/neoforge.mods.toml", "pack.mcmeta"),
         "id" to mod.id,
@@ -122,7 +128,8 @@ tasks.processResources {
         "version" to mod.version,
         "minecraft" to common.mod.prop("mc_dep_forgelike"),
         "neoforge" to neoforgeRange,
-        "required" to requiredField
+        "required" to requiredField,
+        "verify_mixins" to verifyMixins
     )
     if (legacyManifest) {
         rename("""neoforge\.mods\.toml""", "mods.toml")
