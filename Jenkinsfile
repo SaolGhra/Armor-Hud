@@ -338,9 +338,12 @@ pipeline {
                     # client, so chiseledBuild is unnecessary here — that is the 35 minutes saved.
                     set -- $DIAGNOSE_NODE
                     LOADER="$1"; MC="$2"
-                    echo "=== building $LOADER:$MC only"
-                    ./gradlew --console=plain -q "Set active project to $MC"
-                    ./gradlew ":$LOADER:$MC:build" -x test --stacktrace
+                    echo "=== building $LOADER:$MC only (with the verify hook compiled in)"
+                    # -Parmorhud.verify=true on the set-active is what compiles ArmorHudVerifyHook in
+                    # — the const is resolved when the version is set active, not at runClient. Match
+                    # what hud_ingame.sh does so the pre-build is reused rather than rebuilt.
+                    ./gradlew --console=plain -q -Parmorhud.verify=true "Set active project to $MC"
+                    ./gradlew -Parmorhud.verify=true ":$LOADER:$MC:build" -x test --stacktrace
 
                     echo "=== running one node: $LOADER $MC"
                     # Software rendering needs longer between "in the world" and a frame worth
