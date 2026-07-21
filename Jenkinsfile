@@ -382,6 +382,13 @@ pipeline {
                         echo "    (no capture written)"
                     fi
 
+                    echo "=== any PNG screenshots anywhere in the workspace"
+                    find "$WORKSPACE" -name "*.png" -path "*screenshots*" 2>/dev/null | head -10 || true
+                    find "$WORKSPACE" -type d -name screenshots 2>/dev/null | head || true
+
+                    echo "=== verify-hook lines from the client log"
+                    grep -F "[armor_hud verify]" build/hud-screenshots/$LOADER-$MC.log 2>/dev/null || echo "(hook printed nothing — it never fired)"
+
                     echo "=== client log tail"
                     tail -40 build/hud-screenshots/$LOADER-$MC.log 2>/dev/null || echo "(no client log)"
                 '''
