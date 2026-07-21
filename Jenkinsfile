@@ -346,7 +346,26 @@ pipeline {
                     # Software rendering needs longer between "in the world" and a frame worth
                     # asserting on than a GPU does.
                     export ARMOR_HUD_HEADLESS=1 SETTLE="${SETTLE:-60}"
+
+                    # Log every window on every display, every 4s, for the whole node — a timeline of
+                    # when (or whether) Minecraft's main 1920x1080 window ever appears. The harness
+                    # picks its display dynamically (:77+), so scan a range. Fully guarded for set -e.
+                    ( for _ in $(seq 1 45); do
+                        for d in :77 :78 :79 :80; do
+                            ids=$(DISPLAY=$d xdotool search --all "" 2>/dev/null || true)
+                            for w in $ids; do
+                                g=$(DISPLAY=$d xdotool getwindowgeometry "$w" 2>/dev/null | grep -oE "[0-9]+x[0-9]+" | tail -1 || true)
+                                [ "$g" = "1x1" ] && continue
+                                echo "  [win $d] wid=$w geom=$g" >&2
+                            done
+                        done
+                        echo "  [win ---- $(date +%H:%M:%S)]" >&2
+                        sleep 4
+                      done ) &
+                    WMON=$!
+
                     verify/hud_ingame.sh "$LOADER" "$MC" || true
+                    kill $WMON 2>/dev/null || true
 
                     # Describe the capture in the console. Artifacts have repeatedly not been there
                     # when needed, and "is the frame black, a loading screen, or the world?" is the
