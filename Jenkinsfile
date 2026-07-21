@@ -253,7 +253,7 @@ pipeline {
                         echo "installing the display stack (absent from this agent image)"
                         apt-get update -qq
                         apt-get install -y -qq \
-                            python3 xvfb xdotool wmctrl imagemagick \
+                            python3 xvfb xdotool openbox imagemagick \
                             libgl1-mesa-dri libglu1-mesa mesa-utils \
                             libxext6 libxrender1 libxtst6 libxi6 libxrandr2 \
                             libxcursor1 libxinerama1 libxxf86vm1 >/dev/null
@@ -312,7 +312,7 @@ pipeline {
                         echo "=== installing the display stack"
                         apt-get update -qq
                         apt-get install -y -qq \
-                            python3 xvfb xdotool wmctrl imagemagick \
+                            python3 xvfb xdotool openbox imagemagick \
                             libgl1-mesa-dri libglu1-mesa mesa-utils \
                             libxext6 libxrender1 libxtst6 libxi6 libxrandr2 \
                             libxcursor1 libxinerama1 libxxf86vm1 >/dev/null
