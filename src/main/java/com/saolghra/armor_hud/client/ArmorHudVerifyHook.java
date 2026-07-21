@@ -72,19 +72,26 @@ final class ArmorHudVerifyHook {
             opened = true;
         }
         if (SHOT && !shotTaken) {
-            // Auto-named PNG into <gameDir>/screenshots/. The 3-arg grab is identical across the
-            // whole 1.20-1.21.11 matrix (the named overload is not, so it is avoided). The harness
-            // reads the newest file from that directory. The prints land in the client log so a
-            // missing screenshot can be told apart from a hook that never ran.
-            System.out.println("[armor_hud verify] taking framebuffer screenshot into "
-                    + client.gameDirectory + "/screenshots");
-            try {
-                Screenshot.grab(client.gameDirectory, client.getMainRenderTarget(), message -> {});
-                System.out.println("[armor_hud verify] Screenshot.grab returned");
-            } catch (Throwable t) {
-                System.out.println("[armor_hud verify] Screenshot.grab threw: " + t);
-            }
             shotTaken = true;
+            // Grabbing here, mid-HUD-render, captures the main render target BEFORE the HUD is
+            // composited onto it — modern Minecraft draws the GUI to a separate buffer and composites
+            // it after this hook, so the screenshot comes out as world-only with no HUD at all.
+            //
+            // Defer the grab onto the client's task queue instead. That queue is drained at the top
+            // of the next frame's tick, before that frame renders anything, so the main render target
+            // still holds the PREVIOUS complete frame — world AND fully composited HUD. Auto-named
+            // PNG into <gameDir>/screenshots/; the 3-arg grab is identical across the whole matrix.
+            final Minecraft c = client;
+            c.execute(() -> {
+                System.out.println("[armor_hud verify] deferred framebuffer screenshot into "
+                        + c.gameDirectory + "/screenshots");
+                try {
+                    Screenshot.grab(c.gameDirectory, c.getMainRenderTarget(), message -> {});
+                    System.out.println("[armor_hud verify] Screenshot.grab returned");
+                } catch (Throwable t) {
+                    System.out.println("[armor_hud verify] Screenshot.grab threw: " + t);
+                }
+            });
         }
     }
 }
