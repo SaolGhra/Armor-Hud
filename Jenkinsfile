@@ -346,29 +346,6 @@ pipeline {
                     # Software rendering needs longer between "in the world" and a frame worth
                     # asserting on than a GPU does.
                     export ARMOR_HUD_HEADLESS=1 SETTLE="${SETTLE:-60}"
-
-                    # Enumerate the windows on a throwaway display, so when the capture cannot find
-                    # "Minecraft" we can see what title it actually has. Launch a client, wait, list.
-                    echo "=== windows on the display during a launch"
-                    Xvfb :91 -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
-                    PROBE_XVFB=$!
-                    sleep 2
-                    ( DISPLAY=:91 LIBGL_ALWAYS_SOFTWARE=1 ./gradlew --console=plain \
-                        ":$LOADER:$MC:runClient" \
-                        --args="--width 800 --height 600" >/tmp/probe-client.log 2>&1 & )
-                    for i in $(seq 1 40); do
-                        WINS=$(DISPLAY=:91 xdotool search --name "" getwindowname %@ 2>/dev/null | grep -v '^$')
-                        if [ -n "$WINS" ]; then
-                            echo "  windows after ${i}0s:"
-                            echo "$WINS" | sed 's/^/    /'
-                            break
-                        fi
-                        sleep 10
-                    done
-                    DISPLAY=:91 wmctrl -l 2>/dev/null | sed 's/^/    wmctrl: /' || true
-                    pkill -f "runClient" 2>/dev/null || true
-                    kill $PROBE_XVFB 2>/dev/null || true
-
                     verify/hud_ingame.sh "$LOADER" "$MC" || true
 
                     # Describe the capture in the console. Artifacts have repeatedly not been there
