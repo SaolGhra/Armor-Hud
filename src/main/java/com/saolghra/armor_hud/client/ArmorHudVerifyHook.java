@@ -71,27 +71,29 @@ final class ArmorHudVerifyHook {
             client.setScreen(screen);
             opened = true;
         }
-        if (SHOT && !shotTaken) {
-            shotTaken = true;
-            // Grabbing here, mid-HUD-render, captures the main render target BEFORE the HUD is
-            // composited onto it — modern Minecraft draws the GUI to a separate buffer and composites
-            // it after this hook, so the screenshot comes out as world-only with no HUD at all.
-            //
-            // Defer the grab onto the client's task queue instead. That queue is drained at the top
-            // of the next frame's tick, before that frame renders anything, so the main render target
-            // still holds the PREVIOUS complete frame — world AND fully composited HUD. Auto-named
-            // PNG into <gameDir>/screenshots/; the 3-arg grab is identical across the whole matrix.
-            final Minecraft c = client;
-            c.execute(() -> {
-                System.out.println("[armor_hud verify] deferred framebuffer screenshot into "
-                        + c.gameDirectory + "/screenshots");
-                try {
-                    Screenshot.grab(c.gameDirectory, c.getMainRenderTarget(), message -> {});
-                    System.out.println("[armor_hud verify] Screenshot.grab returned");
-                } catch (Throwable t) {
-                    System.out.println("[armor_hud verify] Screenshot.grab threw: " + t);
-                }
-            });
+    }
+
+    // Called by ArmorHudVerifyGameRendererMixin at the TAIL of GameRenderer.render — the point where
+    // the whole frame, world AND the fully composited HUD, is in the main render target. Grabbing
+    // from the HUD render hook instead gets world-only, because the GUI is still batched there and is
+    // flushed to the target only after this. Screenshot.grab auto-names a PNG into
+    // <gameDir>/screenshots/; the 3-arg overload is identical across the whole matrix.
+    static void captureFrame() {
+        if (!SHOT || shotTaken || framesSeen < DELAY_FRAMES) {
+            return;
+        }
+        Minecraft client = Minecraft.getInstance();
+        if (client == null) {
+            return;
+        }
+        shotTaken = true;
+        System.out.println("[armor_hud verify] framebuffer screenshot into "
+                + client.gameDirectory + "/screenshots");
+        try {
+            Screenshot.grab(client.gameDirectory, client.getMainRenderTarget(), message -> {});
+            System.out.println("[armor_hud verify] Screenshot.grab returned");
+        } catch (Throwable t) {
+            System.out.println("[armor_hud verify] Screenshot.grab threw: " + t);
         }
     }
 }

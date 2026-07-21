@@ -25,3 +25,10 @@ ${required}
 versionRange = "${minecraft}"
 ordering = "NONE"
 side = "CLIENT"
+
+# Verification-only mixin, absent from release builds (the `verify` const guards this block and the
+# mixin class both). Registers the framebuffer-screenshot mixin used by the headless HUD check.
+#? if verify {
+#[[mixins]]
+#config = "armor_hud-verify.mixins.json"
+#?}

@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.saolghra.armor_hud.client",
+  "compatibilityLevel": "JAVA_17",
+  "client": [
+    "ArmorHudVerifyGameRendererMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
