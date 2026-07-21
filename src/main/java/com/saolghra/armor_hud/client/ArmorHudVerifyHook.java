@@ -74,8 +74,16 @@ final class ArmorHudVerifyHook {
         if (SHOT && !shotTaken) {
             // Auto-named PNG into <gameDir>/screenshots/. The 3-arg grab is identical across the
             // whole 1.20-1.21.11 matrix (the named overload is not, so it is avoided). The harness
-            // reads the newest file from that directory.
-            Screenshot.grab(client.gameDirectory, client.getMainRenderTarget(), message -> {});
+            // reads the newest file from that directory. The prints land in the client log so a
+            // missing screenshot can be told apart from a hook that never ran.
+            System.out.println("[armor_hud verify] taking framebuffer screenshot into "
+                    + client.gameDirectory + "/screenshots");
+            try {
+                Screenshot.grab(client.gameDirectory, client.getMainRenderTarget(), message -> {});
+                System.out.println("[armor_hud verify] Screenshot.grab returned");
+            } catch (Throwable t) {
+                System.out.println("[armor_hud verify] Screenshot.grab threw: " + t);
+            }
             shotTaken = true;
         }
     }
