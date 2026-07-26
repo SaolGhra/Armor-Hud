@@ -59,7 +59,11 @@ pipeline {
                 description: 'Debug loop for the HUD check: skips the matrix build, probes the ' +
                         'agent\'s OpenGL, and runs ONE node. Minutes instead of an hour.')
         string(name: 'DIAGNOSE_NODE', defaultValue: 'neoforge 1.21.11',
-                description: 'Which node DIAGNOSE_HUD runs, as "<loader> <mc>".')
+                description: 'Which node(s) DIAGNOSE_HUD runs, as a ";"-separated list of "<loader> <mc>".')
+        string(name: 'HUD_NODES', defaultValue: '',
+                description: 'Restrict RUN_HUD_CHECK to a ";"-separated list of "<loader> <mc>" (or ' +
+                        'bare "<loader>" for all its versions). Empty = the whole matrix. Lets a long ' +
+                        'run be split into agent-sized batches.')
 
         string(name: 'NOTIFY_URL', defaultValue: 'https://notify.saolghra.co.uk/builds',
                 description: 'ntfy topic for progress notifications. Empty disables them.')
@@ -237,6 +241,7 @@ pipeline {
                 script { notify("HUD check started", "37 nodes, software GL — this takes a while", 'hourglass') }
                 sh '''
                     set -e
+                    set -o pipefail
                     export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
                     export PATH="$JAVA_HOME/bin:$PATH"
                     export ARMOR_HUD_HEADLESS=1
@@ -263,25 +268,49 @@ pipeline {
                             echo "!! $tool still missing after install — cannot run the HUD check"; exit 1; }
                     done
 
-                    # Smoke one node first. If the client cannot start here it cannot start on any
-                    # of them, and finding that out 37 boot-timeouts later wastes hours and usually
-                    # ends with the agent being killed rather than a usable error.
-                    if ! verify/hud_ingame.sh neoforge 1.21.11 | tee build/hud-check.txt; then
-                        echo "!! the first node failed — not attempting the rest"
-                        exit 1
-                    fi
+                    : > build/hud-check.txt
 
-                    { verify/hud_ingame.sh neoforge
-                      verify/hud_ingame.sh fabric
-                      verify/hud_ingame.sh forge
-                    } | tee -a build/hud-check.txt
+                    if [ -n "$HUD_NODES" ]; then
+                        # Batched run: an explicit ";"-separated node list, so a long matrix can be
+                        # split into agent-sized chunks. Each entry runs on its own (|| true) so one
+                        # node's failure does not abort the batch — the gate below fails the build if
+                        # any node logged a FAIL.
+                        echo "HUD check restricted to: $HUD_NODES"
+                        OLDIFS=$IFS; IFS=';'
+                        for NODE in $HUD_NODES; do
+                            IFS=$OLDIFS
+                            [ -n "$NODE" ] || continue
+                            verify/hud_ingame.sh $NODE 2>&1 | tee -a build/hud-check.txt || true
+                        done
+                        IFS=$OLDIFS
+                    else
+                        # Full matrix. Smoke one node first: if the client cannot start here it cannot
+                        # start on any of them, and finding that out 37 boot-timeouts later wastes hours
+                        # and usually ends with the agent killed rather than a usable error. pipefail
+                        # makes the tee'd exit reflect hud_ingame, not tee.
+                        if ! verify/hud_ingame.sh neoforge 1.21.11 2>&1 | tee -a build/hud-check.txt; then
+                            echo "!! the first node failed — not attempting the rest"
+                            exit 1
+                        fi
+                        { verify/hud_ingame.sh neoforge
+                          verify/hud_ingame.sh fabric
+                          verify/hud_ingame.sh forge
+                        } 2>&1 | tee -a build/hud-check.txt || true
+                    fi
                 '''
                 script {
-                    def pass = sh(script: "grep -c '  PASS' build/hud-check.txt || echo 0", returnStdout: true).trim()
-                    def fail = sh(script: "grep -c '  FAIL' build/hud-check.txt || echo 0", returnStdout: true).trim()
+                    def pass = sh(script: "grep -c '  PASS ' build/hud-check.txt || true", returnStdout: true).trim()
+                    def fail = sh(script: "grep -c '  FAIL ' build/hud-check.txt || true", returnStdout: true).trim()
                     notify("HUD check: ${pass} passed, ${fail} failed", "build #${env.BUILD_NUMBER}",
                            fail == '0' ? 'white_check_mark' : 'rotating_light',
                            fail == '0' ? 'default' : 'high')
+                    // A FAIL anywhere must fail the build — otherwise a false green ships a broken HUD.
+                    if (fail != '0') {
+                        error("HUD check: ${fail} assertion failure(s) — see build/hud-check.txt")
+                    }
+                    if (pass == '0') {
+                        error("HUD check produced no PASS lines — harness or launch problem, not a clean run")
+                    }
                 }
             }
             post {
