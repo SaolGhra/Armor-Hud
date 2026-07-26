@@ -115,7 +115,12 @@ pipeline {
         }
 
         stage('Build matrix') {
-            when { expression { return !params.DIAGNOSE_HUD } }
+            // Only build the whole matrix when something downstream consumes the jars: the jar audit,
+            // or a publish. The HUD check does NOT need it — hud_ingame.sh sets each node active and
+            // builds it via runClient — so a HUD-check-only run (e.g. a batched HUD_NODES run) must
+            // not pay for a full chiseledBuild first, which is itself long and agent-risky.
+            when { expression { return !params.DIAGNOSE_HUD &&
+                    (params.RUN_JAR_AUDIT || params.PUBLISH_GITHUB || params.PUBLISH_MODRINTH) } }
             steps {
                 // Retried because the upstream mod mavens are not reliable: a single transient
                 // artifact download failure otherwise reds the entire matrix.
@@ -450,7 +455,9 @@ pipeline {
         }
 
         stage('Collect jars') {
-            when { expression { return !params.DIAGNOSE_HUD } }
+            // Same gate as Build matrix: without it build/libs is empty and archiveArtifacts fails.
+            when { expression { return !params.DIAGNOSE_HUD &&
+                    (params.RUN_JAR_AUDIT || params.PUBLISH_GITHUB || params.PUBLISH_MODRINTH) } }
             steps {
                 archiveArtifacts artifacts: 'build/libs/**/*.jar', fingerprint: true, excludes: '**/*-sources.jar'
             }
