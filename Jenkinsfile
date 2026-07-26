@@ -334,71 +334,83 @@ pipeline {
                         | grep -iE "OpenGL core profile version|OpenGL version|renderer string" | head -3
                     kill $XVFB_PID 2>/dev/null || true
 
-                    # Build only the node under test. hud_ingame.sh sets it active and runs its
-                    # client, so chiseledBuild is unnecessary here — that is the 35 minutes saved.
-                    set -- $DIAGNOSE_NODE
-                    LOADER="$1"; MC="$2"
-                    echo "=== building $LOADER:$MC only (with the verify hook compiled in)"
-                    # -Parmorhud.verify=true on the set-active is what compiles ArmorHudVerifyHook in
-                    # — the const is resolved when the version is set active, not at runClient. Match
-                    # what hud_ingame.sh does so the pre-build is reused rather than rebuilt.
-                    ./gradlew --console=plain -q -Parmorhud.verify=true "Set active project to $MC"
-                    ./gradlew -Parmorhud.verify=true ":$LOADER:$MC:build" -x test --stacktrace
-
-                    echo "=== running one node: $LOADER $MC"
-                    # Software rendering needs longer between "in the world" and a frame worth
-                    # asserting on than a GPU does.
+                    # DIAGNOSE_NODE is one or more "<loader> <mc>" pairs separated by ';', so a single
+                    # run can shake out several risk classes at once (Fabric refmap, old render
+                    # pipeline, Forge) instead of babysitting one build per node.
                     export ARMOR_HUD_HEADLESS=1 SETTLE="${SETTLE:-60}"
+                    DIAG_FAIL=0
+                    OLDIFS=$IFS; IFS=';'
+                    for NODE in $DIAGNOSE_NODE; do
+                        IFS=$OLDIFS
+                        set -- $NODE
+                        LOADER="$1"; MC="$2"
+                        [ -n "$LOADER" ] && [ -n "$MC" ] || { echo "!! skipping malformed node '$NODE'"; continue; }
+                        echo "############################################################"
+                        echo "### DIAGNOSE NODE: $LOADER $MC"
+                        echo "############################################################"
 
-                    # Log every window on every display, every 4s, for the whole node — a timeline of
-                    # when (or whether) Minecraft's main 1920x1080 window ever appears. The harness
-                    # picks its display dynamically (:77+), so scan a range. Fully guarded for set -e.
-                    ( for _ in $(seq 1 45); do
-                        for d in :77 :78 :79 :80; do
-                            ids=$(DISPLAY=$d xdotool search --all "" 2>/dev/null || true)
-                            for w in $ids; do
-                                g=$(DISPLAY=$d xdotool getwindowgeometry "$w" 2>/dev/null | grep -oE "[0-9]+x[0-9]+" | tail -1 || true)
-                                [ "$g" = "1x1" ] && continue
-                                echo "  [win $d] wid=$w geom=$g" >&2
+                        # hud_ingame.sh sets the node active and runs its client, so chiseledBuild is
+                        # unnecessary here. -Parmorhud.verify=true on the set-active is what compiles
+                        # ArmorHudVerifyHook in — the const resolves at set-active, not at runClient —
+                        # so match it here and the pre-build is reused rather than rebuilt.
+                        echo "=== building $LOADER:$MC only (with the verify hook compiled in)"
+                        ./gradlew --console=plain -q -Parmorhud.verify=true "Set active project to $MC"
+                        ./gradlew -Parmorhud.verify=true ":$LOADER:$MC:build" -x test --stacktrace
+
+                        echo "=== running one node: $LOADER $MC"
+                        # Timeline of whether Minecraft's main window ever appears (the harness picks
+                        # its display dynamically from :77+). Fully guarded for set -e.
+                        ( for _ in $(seq 1 45); do
+                            for d in :77 :78 :79 :80; do
+                                ids=$(DISPLAY=$d xdotool search --all "" 2>/dev/null || true)
+                                for w in $ids; do
+                                    g=$(DISPLAY=$d xdotool getwindowgeometry "$w" 2>/dev/null | grep -oE "[0-9]+x[0-9]+" | tail -1 || true)
+                                    [ "$g" = "1x1" ] && continue
+                                    echo "  [win $d] wid=$w geom=$g" >&2
+                                done
                             done
-                        done
-                        echo "  [win ---- $(date +%H:%M:%S)]" >&2
-                        sleep 4
-                      done ) &
-                    WMON=$!
+                            echo "  [win ---- $(date +%H:%M:%S)]" >&2
+                            sleep 4
+                          done ) &
+                        WMON=$!
 
-                    verify/hud_ingame.sh "$LOADER" "$MC" || true
-                    kill $WMON 2>/dev/null || true
+                        verify/hud_ingame.sh "$LOADER" "$MC" || true
+                        kill $WMON 2>/dev/null || true
 
-                    # Describe the capture in the console. Artifacts have repeatedly not been there
-                    # when needed, and "is the frame black, a loading screen, or the world?" is the
-                    # whole question when every bar reads zero pixels.
-                    echo "=== capture stats"
-                    SHOT="build/hud-screenshots/$LOADER-$MC-hud.png"
-                    if [ -f "$SHOT" ]; then
-                        magick identify "$SHOT" 2>/dev/null || identify "$SHOT" 2>/dev/null
-                        echo "    mean brightness (0=black, 65535=white):"
-                        magick "$SHOT" -format "      %[mean]" info: 2>/dev/null && echo
-                        echo "    distinct colours (a loading screen has very few):"
-                        magick "$SHOT" -format "      %k" info: 2>/dev/null && echo
-                        # Emit a downscaled copy as base64 so the actual image can be seen from the
-                        # console — artifacts have been unreliable, and "what is in the frame" is the
-                        # whole question. Decode with: grep B64IMG log | cut -d' ' -f2 | base64 -d > x.png
-                        magick "$SHOT" -resize 480x /tmp/diag_small.png 2>/dev/null
-                        echo "B64IMG $(base64 -w0 /tmp/diag_small.png 2>/dev/null)"
-                    else
-                        echo "    (no capture written)"
-                    fi
+                        # Describe the capture in the console — "is the frame black, a loading screen,
+                        # or the world with a HUD?" is the whole question, and artifacts have repeatedly
+                        # not been there when needed.
+                        echo "=== capture stats: $LOADER $MC"
+                        SHOT="build/hud-screenshots/$LOADER-$MC-hud.png"
+                        if [ -f "$SHOT" ]; then
+                            magick identify "$SHOT" 2>/dev/null || identify "$SHOT" 2>/dev/null
+                            echo "    mean brightness (0=black, 65535=white):"
+                            magick "$SHOT" -format "      %[mean]" info: 2>/dev/null && echo
+                            echo "    distinct colours (a loading screen has very few):"
+                            magick "$SHOT" -format "      %k" info: 2>/dev/null && echo
+                            # Downscaled base64 so the actual image is visible from the console. Decode:
+                            #   grep 'B64IMG <loader>-<mc>' log | awk '{print $3}' | base64 -d > x.png
+                            magick "$SHOT" -resize 480x /tmp/diag_small.png 2>/dev/null
+                            echo "B64IMG $LOADER-$MC $(base64 -w0 /tmp/diag_small.png 2>/dev/null)"
+                        else
+                            echo "    (no capture written)"
+                            DIAG_FAIL=1
+                        fi
+
+                        echo "=== verify-hook lines from the client log: $LOADER $MC"
+                        grep -F "[armor_hud verify]" build/hud-screenshots/$LOADER-$MC.log 2>/dev/null || echo "(hook printed nothing — it never fired)"
+
+                        echo "=== client log tail: $LOADER $MC"
+                        tail -40 build/hud-screenshots/$LOADER-$MC.log 2>/dev/null || echo "(no client log)"
+                    done
+                    IFS=$OLDIFS
 
                     echo "=== any PNG screenshots anywhere in the workspace"
-                    find "$WORKSPACE" -name "*.png" -path "*screenshots*" 2>/dev/null | head -10 || true
-                    find "$WORKSPACE" -type d -name screenshots 2>/dev/null | head || true
+                    find "$WORKSPACE" -name "*.png" -path "*screenshots*" 2>/dev/null | head -20 || true
 
-                    echo "=== verify-hook lines from the client log"
-                    grep -F "[armor_hud verify]" build/hud-screenshots/$LOADER-$MC.log 2>/dev/null || echo "(hook printed nothing — it never fired)"
-
-                    echo "=== client log tail"
-                    tail -40 build/hud-screenshots/$LOADER-$MC.log 2>/dev/null || echo "(no client log)"
+                    # A diagnose that produced no capture for some node is a failure worth surfacing in
+                    # red, even though each node's own crash is tolerated (|| true) so the others run.
+                    [ "$DIAG_FAIL" = 0 ] || { echo "!! at least one node produced no capture"; exit 1; }
                 '''
             }
             post {

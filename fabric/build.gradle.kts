@@ -116,12 +116,19 @@ tasks.jar {
     archiveClassifier = "dev"
 }
 
+// The verification-only screenshot mixin is registered only in verify builds, via the same
+// armorhud.verify flag that compiles the mixin CLASS in. Emits the whole "mixins" key (with trailing
+// comma) so release builds — where it is empty — declare no mixins at all and stay mixin-free.
+val verifyMixins = if (providers.gradleProperty("armorhud.verify").isPresent)
+    "\"mixins\": [\"armor_hud-verify.mixins.json\"]," else ""
+
 tasks.processResources {
     properties(listOf("fabric.mod.json"),
         "id" to mod.id,
         "name" to mod.name,
         "version" to mod.version,
-        "minecraft" to common.mod.prop("mc_dep_fabric")
+        "minecraft" to common.mod.prop("mc_dep_fabric"),
+        "verify_mixins" to verifyMixins
     )
 }
 

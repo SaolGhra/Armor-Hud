@@ -17,11 +17,17 @@ package com.saolghra.armor_hud.mixin;
 // render target holds the fully composited frame there. That is the point F2 screenshots effectively
 // use, and it is the earliest place a screenshot includes the HUD.
 //
+// The handler captures NONE of render's arguments — just CallbackInfo. Mixin's checkDescriptor
+// accepts a handler whose descriptor equals the "simple" callback descriptor (CallbackInfo only) and
+// runs it with captureArgs=false, so this matches render(...) regardless of its parameters. That is
+// deliberate: render's signature varies across the matrix (DeltaTracker vs. float partialTick, etc.),
+// and an arg-less handler needs no per-version Stonecutter guard and no version-specific imports —
+// it compiles and applies on every node. `method = "render"` resolves by name (unique in GameRenderer).
+//
 // Line comments only, matching ArmorHudVerifyHook, so Stonecutter can comment the file out cleanly.
 //? if verify {
 /*import com.saolghra.armor_hud.client.ArmorHudVerifyHook;
 
-import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.renderer.GameRenderer;
 
 import org.spongepowered.asm.mixin.Mixin;
@@ -33,7 +39,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class ArmorHudVerifyGameRendererMixin {
     // TAIL of render: world and the flushed, composited HUD are both in the main render target now.
     @Inject(method = "render", at = @At("TAIL"))
-    private void armorHudVerifyCapture(DeltaTracker deltaTracker, boolean renderLevel, CallbackInfo ci) {
+    private void armorHudVerifyCapture(CallbackInfo ci) {
         ArmorHudVerifyHook.captureFrame();
     }
 }

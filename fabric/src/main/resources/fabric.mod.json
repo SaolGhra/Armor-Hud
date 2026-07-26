@@ -17,6 +17,7 @@
     "client": ["com.saolghra.armor_hud.fabric.ArmorHudFabric"],
     "modmenu": ["com.saolghra.armor_hud.fabric.config.ModMenuIntegration"]
   },
+  ${verify_mixins}
   "depends": {
     "fabricloader": ">=0.15.0",
     "minecraft": "${minecraft}",

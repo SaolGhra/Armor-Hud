@@ -25,3 +25,7 @@ displayURL = "https://modrinth.com/mod/armor-hud"
     versionRange = "${minecraft}"
     ordering = "NONE"
     side = "CLIENT"
+
+# Verification-only screenshot mixin. Templated to the mixin block in verify builds
+# (-Parmorhud.verify=true), empty otherwise, so release jars register no mixin.
+${verify_mixins}

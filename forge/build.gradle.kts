@@ -98,12 +98,19 @@ tasks.remapJar {
     dependsOn(tasks.shadowJar)
 }
 
+// The verification-only screenshot mixin is registered only in verify builds, via the same
+// armorhud.verify flag that compiles the mixin CLASS in. Templated through the manifest rather than
+// Stonecutter-guarded because Stonecutter does not toggle this .toml. Release: empty, no mixin.
+val verifyMixins = if (providers.gradleProperty("armorhud.verify").isPresent)
+    "[[mixins]]\nconfig = \"armor_hud-verify.mixins.json\"" else ""
+
 tasks.processResources {
     properties(listOf("META-INF/mods.toml", "pack.mcmeta"),
         "id" to mod.id,
         "name" to mod.name,
         "version" to mod.version,
-        "minecraft" to common.mod.prop("mc_dep_forgelike")
+        "minecraft" to common.mod.prop("mc_dep_forgelike"),
+        "verify_mixins" to verifyMixins
     )
 }
 
