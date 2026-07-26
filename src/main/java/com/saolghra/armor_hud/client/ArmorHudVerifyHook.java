@@ -24,7 +24,7 @@ package com.saolghra.armor_hud.client;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
 
-final class ArmorHudVerifyHook {
+public final class ArmorHudVerifyHook {
     // Gradle's runClient forks a JVM that inherits the environment but not ad-hoc -D flags,
     // so the harness sets these as environment variables (with matching -D fallbacks).
     private static final String OPEN_PROPERTY = "armor_hud.verify.openConfig";
@@ -78,7 +78,7 @@ final class ArmorHudVerifyHook {
     // from the HUD render hook instead gets world-only, because the GUI is still batched there and is
     // flushed to the target only after this. Screenshot.grab auto-names a PNG into
     // <gameDir>/screenshots/; the 3-arg overload is identical across the whole matrix.
-    static void captureFrame() {
+    public static void captureFrame() {
         if (!SHOT || shotTaken || framesSeen < DELAY_FRAMES) {
             return;
         }
