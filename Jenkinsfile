@@ -240,75 +240,145 @@ pipeline {
             post { always { archiveArtifacts artifacts: 'build/audit.txt', allowEmptyArchive: true } }
         }
 
+        // Rewritten to fan out across several agents instead of one. Splitting an 18+ node HUD check
+        // into N parallel branches — each provisioning its OWN Docker container from the cloud (cap
+        // 100, so this is nowhere near the ceiling) — turns an N x per-node-time serial run into
+        // roughly per-node-time x (N/batchCount). This only helps the CI side; a Fabric-only local
+        // run (see the agent notes) is optimized separately.
         stage('HUD check') {
             when { expression { return params.RUN_HUD_CHECK && !params.DIAGNOSE_HUD } }
             steps {
-                script { notify("HUD check started", "37 nodes, software GL — this takes a while", 'hourglass') }
-                sh '''
-                    set -e
-                    set -o pipefail
-                    export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
-                    export PATH="$JAVA_HOME/bin:$PATH"
-                    export ARMOR_HUD_HEADLESS=1
-                    export ARMOR_HUD_ROOT="$WORKSPACE"
-
-                    # This check launches a real client per node, so the agent needs a display server,
-                    # an input tool, ImageMagick and a GL stack. Installed per run because agents are
-                    # disposable; worth it here in a way it would not be for a per-commit stage, since
-                    # the check itself runs for hours.
-                    #
-                    # The X libraries are for LWJGL: it ships its own natives but links against the
-                    # system X client libraries, and Minecraft dies at window creation without them.
-                    if ! command -v Xvfb >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
-                        echo "installing the display stack (absent from this agent image)"
-                        apt-get update -qq
-                        apt-get install -y -qq \
-                            python3 xvfb xdotool openbox imagemagick \
-                            libgl1-mesa-dri libglu1-mesa mesa-utils \
-                            libxext6 libxrender1 libxtst6 libxi6 libxrandr2 \
-                            libxcursor1 libxinerama1 libxxf86vm1 >/dev/null
-                    fi
-                    for tool in Xvfb xdotool import python3; do
-                        command -v "$tool" >/dev/null 2>&1 || {
-                            echo "!! $tool still missing after install — cannot run the HUD check"; exit 1; }
-                    done
-
-                    : > build/hud-check.txt
-
-                    if [ -n "$HUD_NODES" ]; then
-                        # Batched run: an explicit ";"-separated node list, so a long matrix can be
-                        # split into agent-sized chunks. Each entry runs on its own (|| true) so one
-                        # node's failure does not abort the batch — the gate below fails the build if
-                        # any node logged a FAIL.
-                        echo "HUD check restricted to: $HUD_NODES"
-                        OLDIFS=$IFS; IFS=';'
-                        for NODE in $HUD_NODES; do
-                            IFS=$OLDIFS
-                            [ -n "$NODE" ] || continue
-                            verify/hud_ingame.sh $NODE 2>&1 | tee -a build/hud-check.txt || true
-                        done
-                        IFS=$OLDIFS
-                    else
-                        # Full matrix. Smoke one node first: if the client cannot start here it cannot
-                        # start on any of them, and finding that out 37 boot-timeouts later wastes hours
-                        # and usually ends with the agent killed rather than a usable error. pipefail
-                        # makes the tee'd exit reflect hud_ingame, not tee.
-                        if ! verify/hud_ingame.sh neoforge 1.21.11 2>&1 | tee -a build/hud-check.txt; then
-                            echo "!! the first node failed — not attempting the rest"
-                            exit 1
-                        fi
-                        { verify/hud_ingame.sh neoforge
-                          verify/hud_ingame.sh fabric
-                          verify/hud_ingame.sh forge
-                        } 2>&1 | tee -a build/hud-check.txt || true
-                    fi
-                '''
                 script {
+                    // Mirrors settings.gradle.kts. Only used to expand a bare loader token (e.g. a
+                    // plain "neoforge" in HUD_NODES) into every version of it, same meaning
+                    // hud_ingame.sh already gives a bare loader argument.
+                    def allVersions = [
+                        fabric: ['1.20','1.20.1','1.20.2','1.20.3','1.20.4','1.20.5','1.20.6',
+                                 '1.21','1.21.1','1.21.2','1.21.3','1.21.4','1.21.5','1.21.6',
+                                 '1.21.7','1.21.8','1.21.9','1.21.10','1.21.11'],
+                        neoforge: ['1.20.2','1.20.3','1.20.4','1.20.5','1.20.6',
+                                   '1.21','1.21.1','1.21.2','1.21.3','1.21.4','1.21.5','1.21.6',
+                                   '1.21.7','1.21.8','1.21.9','1.21.10','1.21.11'],
+                        forge: ['1.20.1'],
+                    ]
+
+                    def raw = params.HUD_NODES?.trim() ? (params.HUD_NODES.split(';') as List) : (allVersions.keySet() as List)
+                    def nodes = []
+                    raw.each { rawEntry ->
+                        def entry = rawEntry.trim()
+                        if (!entry) return
+                        def parts = entry.split(/\s+/)
+                        if (parts.size() == 1) {
+                            (allVersions[parts[0]] ?: []).each { v -> nodes << ("${parts[0]} ${v}" as String) }
+                        } else {
+                            nodes << entry
+                        }
+                    }
+
+                    int batchCount = Math.max(1, Math.min(4, nodes.size()))
+                    def batches = (0..<batchCount).collect { [] as List }
+                    nodes.eachWithIndex { n, i -> batches[i % batchCount] << n }
+
+                    notify("HUD check started", "${nodes.size()} nodes across ${batchCount} parallel agents — software GL", 'hourglass')
+
+                    def branches = [:]
+                    batches.eachWithIndex { batchNodes, i ->
+                        if (batchNodes.isEmpty()) return
+                        def batchName = "batch-${i}"
+                        def hudNodesForBatch = batchNodes.join(';')
+                        branches[batchName] = {
+                            node('linux') {
+                                checkout scm
+                                sh '''
+                                    set -e
+                                    JDK_DIR="$WORKSPACE/.jdk/temurin-21"
+                                    if [ ! -x "$JDK_DIR"/bin/javac ]; then
+                                        mkdir -p "$JDK_DIR"
+                                        curl -sSL "https://api.adoptium.net/v3/binary/latest/21/ga/linux/x64/jdk/hotspot/normal/eclipse" \
+                                            -o "$WORKSPACE/.jdk/jdk21.tar.gz"
+                                        tar -xzf "$WORKSPACE/.jdk/jdk21.tar.gz" -C "$JDK_DIR" --strip-components=1
+                                        rm -f "$WORKSPACE/.jdk/jdk21.tar.gz"
+                                    fi
+                                    chmod +x gradlew
+                                '''
+                                sh '''
+                                    set -e
+                                    mkdir -p ~/.ssh && chmod 700 ~/.ssh
+                                    touch ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+                                    if ! grep -q "^github.com " ~/.ssh/known_hosts 2>/dev/null; then
+                                        curl -sS https://api.github.com/meta \
+                                            | tr ',' '\\n' \
+                                            | grep -oE '"(ssh-[a-z0-9]+|ecdsa-sha2-nistp256) [A-Za-z0-9+/=]+"' \
+                                            | tr -d '"' | sed 's/^/github.com /' >> ~/.ssh/known_hosts
+                                    fi
+                                '''
+                                dir('verify') {
+                                    checkout([$class: 'GitSCM',
+                                        branches: [[name: '*/main']],
+                                        userRemoteConfigs: [[
+                                            url: 'git@github.com:SaolGhra/armor-hud-verify.git',
+                                            credentialsId: 'armor-hud-verify-key']]])
+                                }
+                                withEnv(["HUD_NODES=${hudNodesForBatch}"]) {
+                                    sh '''
+                                        set -e
+                                        set -o pipefail
+                                        export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
+                                        export PATH="$JAVA_HOME/bin:$PATH"
+                                        export ARMOR_HUD_HEADLESS=1
+                                        export ARMOR_HUD_ROOT="$WORKSPACE"
+
+                                        if ! command -v Xvfb >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+                                            apt-get update -qq
+                                            apt-get install -y -qq \
+                                                python3 xvfb xdotool openbox imagemagick \
+                                                libgl1-mesa-dri libglu1-mesa mesa-utils \
+                                                libxext6 libxrender1 libxtst6 libxi6 libxrandr2 \
+                                                libxcursor1 libxinerama1 libxxf86vm1 >/dev/null
+                                        fi
+                                        for tool in Xvfb xdotool import python3; do
+                                            command -v "$tool" >/dev/null 2>&1 || {
+                                                echo "!! $tool still missing after install"; exit 1; }
+                                        done
+
+                                        mkdir -p build
+                                        : > build/hud-check.txt
+                                        echo "HUD check batch restricted to: $HUD_NODES"
+                                        OLDIFS=$IFS; IFS=';'
+                                        for NODE in $HUD_NODES; do
+                                            IFS=$OLDIFS
+                                            [ -n "$NODE" ] || continue
+                                            verify/hud_ingame.sh $NODE 2>&1 | tee -a build/hud-check.txt || true
+                                        done
+                                        IFS=$OLDIFS
+                                    '''
+                                }
+                                archiveArtifacts artifacts: 'build/hud-check.txt,build/hud-screenshots/*.png,build/hud-screenshots/*.log',
+                                                 allowEmptyArchive: true
+                                stash name: "hud-${batchName}", includes: 'build/hud-check.txt'
+                            }
+                        }
+                    }
+
+                    parallel branches
+
+                    sh 'mkdir -p build/hud-agg'
+                    branches.keySet().each { batchName ->
+                        try {
+                            unstash "hud-${batchName}"
+                            sh "cp build/hud-check.txt build/hud-agg/hud-check-${batchName}.txt"
+                        } catch (err) {
+                            echo "no results stashed for ${batchName}: ${err}"
+                        }
+                    }
+                    sh 'cat build/hud-agg/*.txt > build/hud-check.txt 2>/dev/null || true'
+
                     def pass = sh(script: "grep -c '  PASS ' build/hud-check.txt || true", returnStdout: true).trim()
                     def fail = sh(script: "grep -c '  FAIL ' build/hud-check.txt || true", returnStdout: true).trim()
                     notify("HUD check: ${pass} passed, ${fail} failed", "build #${env.BUILD_NUMBER}",
                            fail == '0' ? 'white_check_mark' : 'rotating_light',
                            fail == '0' ? 'default' : 'high')
+                    archiveArtifacts artifacts: 'build/hud-check.txt', allowEmptyArchive: true
                     // A FAIL anywhere must fail the build — otherwise a false green ships a broken HUD.
                     if (fail != '0') {
                         error("HUD check: ${fail} assertion failure(s) — see build/hud-check.txt")
@@ -316,15 +386,6 @@ pipeline {
                     if (pass == '0') {
                         error("HUD check produced no PASS lines — harness or launch problem, not a clean run")
                     }
-                }
-            }
-            post {
-                always {
-                    // Archive the per-node client logs too, not just the captures. When a node fails
-                    // to reach a live state the reason is only in its log, and cleanWs() removes the
-                    // workspace before anyone can look — which cost three multi-hour runs.
-                    archiveArtifacts artifacts: 'build/hud-check.txt,build/hud-screenshots/*.png,build/hud-screenshots/*.log',
-                                     allowEmptyArchive: true
                 }
             }
         }
