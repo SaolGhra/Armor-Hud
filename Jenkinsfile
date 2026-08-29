@@ -275,7 +275,12 @@ pipeline {
                         }
                     }
 
-                    int batchCount = Math.max(1, Math.min(4, nodes.size()))
+                    // Capped at 2: the CI host also runs the user's other live production services
+                    // (not dedicated CI capacity). 4 concurrent llvmpipe (software GL) Minecraft
+                    // clients previously starved the kernel's own workqueues and froze the whole box
+                    // solid (no OOM — pure CPU/scheduler exhaustion, confirmed via journalctl after
+                    // a hard reboot). LP_NUM_THREADS below is the second layer of defense.
+                    int batchCount = Math.max(1, Math.min(2, nodes.size()))
                     def batches = (0..<batchCount).collect { [] as List }
                     nodes.eachWithIndex { n, i -> batches[i % batchCount] << n }
 
@@ -327,6 +332,11 @@ pipeline {
                                         export PATH="$JAVA_HOME/bin:$PATH"
                                         export ARMOR_HUD_HEADLESS=1
                                         export ARMOR_HUD_ROOT="$WORKSPACE"
+                                        # llvmpipe (software GL) defaults to one rasterizer thread per
+                                        # core; unbounded, N concurrent clients contend for N x nproc
+                                        # threads and can starve the host. Cap per-client threads so
+                                        # total contention stays bounded regardless of batch count.
+                                        export LP_NUM_THREADS=2
 
                                         if ! command -v Xvfb >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
                                             apt-get update -qq
