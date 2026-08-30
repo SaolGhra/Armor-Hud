@@ -210,7 +210,9 @@ publishMods {
         .orElse("See https://github.com/SaolGhra/Armor-Hud/releases").get()
     modLoaders.add(loader)
     modrinth {
-        projectId = "armor-hud"
+        // mod-publish-plugin 0.8.4 validates this as a raw Modrinth project ID, not a slug — see
+        // fabric/build.gradle.kts's identical modrinth {} block for the full explanation.
+        projectId = "AghHBZC5"
         accessToken = providers.environmentVariable("MODRINTH_TOKEN").orElse("")
         minecraftVersions.addAll(common.mod.prop("mc_targets").split(" "))
     }

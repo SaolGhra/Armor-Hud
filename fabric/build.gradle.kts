@@ -212,7 +212,11 @@ publishMods {
     // Fabric artifact is offered to Quilt users too rather than maintaining a separate native module.
     modLoaders.add("quilt")
     modrinth {
-        projectId = "armor-hud"
+        // mod-publish-plugin 0.8.4 validates this as a raw Modrinth project ID, not a slug — the
+        // human-readable "armor-hud" slug fails with "armor-hud is not a valid Modrinth ID" (a local
+        // IllegalArgumentException, before any network call). This is the actual base62 project ID
+        // behind that slug (https://api.modrinth.com/v2/project/armor-hud -> "id":"AghHBZC5").
+        projectId = "AghHBZC5"
         accessToken = providers.environmentVariable("MODRINTH_TOKEN").orElse("")
         minecraftVersions.addAll(common.mod.prop("mc_targets").split(" "))
 
