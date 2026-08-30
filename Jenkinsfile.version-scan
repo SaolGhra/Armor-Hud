@@ -1,0 +1,511 @@
+// Armor HUD — new-Minecraft-version scanner.
+//
+// SEPARATE from the root `Jenkinsfile`, which is the live build/verify/publish pipeline. This one
+// never builds the matrix, never verifies, never publishes, and never touches mod.version. Wire it
+// up as its own Jenkins job (setup instructions at the bottom of this file).
+//
+// What it does, once a day:
+//
+//   1. Ask Fabric and NeoForge what Minecraft versions they have released for, and compare that
+//      with the `versions/<mc>/` directories in this repo.
+//   2. For anything missing: scaffold `versions/<mc>/gradle.properties` with real, resolved pins and
+//      add the version to settings.gradle.kts's `versions(...)` list(s).
+//   3. Compile ONLY the new node(s) — `chiseledBuild -Pbuild.nodes="fabric <mc>;neoforge <mc>"` —
+//      not the whole 45-node matrix.
+//   4. If it compiles: push the scaffold to a NEW branch `auto/mc-<mc>` (optionally opening a PR)
+//      and notify. If it does not: notify with the error and leave nothing behind.
+//
+// It deliberately stops at "here is a draft". It does NOT edit Stonecutter guards, and a first clean
+// compile is explicitly NOT taken as evidence that the mod is correct on the new version — this
+// project's whole history is subtle Minecraft-API-boundary bugs that compiled fine and rendered
+// wrong (see .claude/docs/version-guards.md and the cross-loader testing notes). Merging the branch
+// is a human decision, and the real verification is the root Jenkinsfile's HUD check afterwards.
+//
+// Forge is never scaffolded: it is permanently 1.20.1-only (binary-incompatible with NeoForge on
+// 1.21+), so "NeoForge released for a new version" never implies a new Forge node.
+
+// Push a line to ntfy. Same shape as the root Jenkinsfile's notify(): values go through the
+// environment so an error message containing quotes cannot break or inject into the shell, and a
+// notification problem never fails the build.
+def notify(String title, String message, String tags = 'mag', String priority = 'default') {
+    if (!params.NOTIFY_URL?.trim()) { return }
+    withEnv(["NTFY_TITLE=${title}", "NTFY_BODY=${message}", "NTFY_TAGS=${tags}", "NTFY_PRIO=${priority}"]) {
+        sh '''
+            curl -sS -X POST \
+                -H "Title: $NTFY_TITLE" \
+                -H "Tags: $NTFY_TAGS" \
+                -H "Priority: $NTFY_PRIO" \
+                -d "$NTFY_BODY" \
+                "''' + params.NOTIFY_URL + '''" >/dev/null 2>&1 || true
+        '''
+    }
+}
+
+pipeline {
+    agent { label 'linux' }
+
+    parameters {
+        string(name: 'BASE_BRANCH', defaultValue: 'compatability-upgrade',
+                description: 'Branch the scaffold is based on and diffed against. The job should be ' +
+                        'configured to check this branch out; this is the name used for the PR base.')
+        booleanParam(name: 'DRY_RUN', defaultValue: false,
+                description: 'Detect, scaffold and build, but push nothing and open no PR. Use this ' +
+                        'to exercise the pipeline without producing a branch.')
+        booleanParam(name: 'OPEN_PR', defaultValue: true,
+                description: 'Open a draft pull request for each pushed branch. Never fatal — the ' +
+                        'branch is the deliverable, the PR is convenience.')
+        string(name: 'FORCE_VERSION', defaultValue: '',
+                description: 'Comma-separated Minecraft versions to treat as if they were missing, ' +
+                        'even though this repo already has them. Testing only: it re-derives their ' +
+                        'pins from upstream so you can see what the scaffolder would have produced. ' +
+                        'Leave empty for normal operation.')
+        booleanParam(name: 'RUN_SELFTEST', defaultValue: true,
+                description: 'Before scanning, re-derive every EXISTING node\'s pins from upstream ' +
+                        'and check they still resolve the way the committed files say. This is what ' +
+                        'catches an upstream numbering change (a new NeoForge scheme, say) before it ' +
+                        'silently produces a wrong scaffold.')
+
+        string(name: 'NOTIFY_URL', defaultValue: 'https://notify.saolghra.co.uk/builds',
+                description: 'ntfy topic for notifications. Empty disables them.')
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '60', daysToKeepStr: '365'))
+        timeout(time: 2, unit: 'HOURS')
+    }
+
+    environment {
+        // Shared with the main pipeline on purpose: the Minecraft/mappings/dependency downloads a
+        // scaffold build needs are mostly already there, so a scan costs minutes rather than an hour.
+        // Outside the workspace because cleanWs() runs after every build.
+        GRADLE_USER_HOME = "${JENKINS_HOME}/.gradle-armor-hud"
+        _JAVA_OPTIONS = '-Xmx3G -Xms512M'
+        GH_REPO = 'SaolGhra/Armor-Hud'
+    }
+
+    // Daily. Unlike the main pipeline (which builds on push, because it is answering a question about
+    // a change that just landed), this one is answering a question about the OUTSIDE world — Mojang
+    // and the loaders ship on their own schedule and nothing in this repo moves when they do. H
+    // spreads the load off the hour.
+    triggers { cron('H 6 * * *') }
+
+    stages {
+        stage('Setup') {
+            steps {
+                sh '''
+                    set -e
+                    # Gradle needs Java <= 21; provision Temurin 21 locally if the agent lacks it.
+                    JDK_DIR="$WORKSPACE/.jdk/temurin-21"
+                    if [ ! -x "$JDK_DIR"/bin/javac ]; then
+                        mkdir -p "$JDK_DIR"
+                        curl -sSL "https://api.adoptium.net/v3/binary/latest/21/ga/linux/x64/jdk/hotspot/normal/eclipse" \
+                            -o "$WORKSPACE/.jdk/jdk21.tar.gz"
+                        tar -xzf "$WORKSPACE/.jdk/jdk21.tar.gz" -C "$JDK_DIR" --strip-components=1
+                        rm -f "$WORKSPACE/.jdk/jdk21.tar.gz"
+                    fi
+                    chmod +x gradlew
+
+                    # Agents are disposable containers; python3 is installed per build rather than
+                    # baked into an image (same as the main pipeline's jar audit stage).
+                    if ! command -v python3 >/dev/null 2>&1; then
+                        if command -v apt-get >/dev/null 2>&1; then
+                            apt-get update -qq && apt-get install -y -qq python3 >/dev/null
+                        elif command -v apk >/dev/null 2>&1; then
+                            apk add --no-cache python3 >/dev/null
+                        fi
+                        command -v python3 >/dev/null || {
+                            echo "!! could not install python3 — the scanner needs it"; exit 1; }
+                    fi
+                    mkdir -p build
+                '''
+                script {
+                    // Captured now so each version's scaffold branches off the pristine base rather
+                    // than off the previous version's scaffold.
+                    env.BASE_SHA = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                    echo "base ${params.BASE_BRANCH} @ ${env.BASE_SHA}"
+                }
+            }
+        }
+
+        // Guards the scaffolder itself. Every pin rule here (the NeoForge<->Minecraft numbering, the
+        // stable-vs-beta preference, the unobfuscated detection, the Java target) is re-derived for
+        // all 23 existing versions and compared with the committed files. Pin VALUES are allowed to
+        // have moved on; the STRUCTURE is not. If upstream ever changes its numbering, this goes red
+        // before a wrong scaffold is ever produced.
+        stage('Selftest') {
+            when { expression { return params.RUN_SELFTEST } }
+            steps {
+                sh '''
+                    set -e
+                    set -o pipefail
+                    python3 ci/version_scan.py selftest --repo "$WORKSPACE" | tee build/selftest.txt
+                '''
+            }
+            post {
+                failure {
+                    script {
+                        notify('Version scan: SELFTEST FAILED',
+                               'the pin resolver no longer reproduces the existing versions — ' +
+                               'upstream numbering probably changed. ' + env.BUILD_URL,
+                               'rotating_light', 'high')
+                    }
+                }
+                always { archiveArtifacts artifacts: 'build/selftest.txt', allowEmptyArchive: true }
+            }
+        }
+
+        stage('Detect') {
+            steps {
+                script {
+                    def force = params.FORCE_VERSION?.trim() ?: ''
+                    withEnv(["FORCE_MISSING=${force}"]) {
+                        sh '''
+                            set -e
+                            set -o pipefail
+                            python3 ci/version_scan.py detect \
+                                --repo "$WORKSPACE" \
+                                --json build/scan.json \
+                                --versions-out build/scan-versions.txt \
+                                --force-missing "$FORCE_MISSING" | tee build/scan.txt
+                        '''
+                    }
+                    env.NEW_VERSIONS = readFile('build/scan-versions.txt').trim()
+                    if (!env.NEW_VERSIONS) {
+                        echo 'nothing new upstream'
+                        // No notification on the quiet path: a daily "still nothing" is noise, and
+                        // the interesting signal (a scan that BREAKS) is covered by post{failure}.
+                    } else {
+                        echo "new versions: ${env.NEW_VERSIONS.replace('\n', ', ')}"
+                    }
+                }
+            }
+            post { always { archiveArtifacts artifacts: 'build/scan.txt,build/scan.json', allowEmptyArchive: true } }
+        }
+
+        stage('Scaffold and build') {
+            when { expression { return env.NEW_VERSIONS?.trim() } }
+            steps {
+                script {
+                    def versions = env.NEW_VERSIONS.trim().readLines().collect { it.trim() }.findAll { it }
+                    def done = []
+                    def skipped = []
+
+                    for (mc in versions) {
+                        def branchName = "auto/mc-${mc}"
+
+                        // A daily cron must not re-open the same draft every morning while it waits
+                        // for a human. An existing remote branch means "already raised".
+                        def exists = sh(script: "git ls-remote --heads origin ${branchName} | wc -l",
+                                        returnStdout: true).trim()
+                        if (exists != '0') {
+                            echo "${branchName} already exists on the remote — already raised, skipping"
+                            skipped << mc
+                            continue
+                        }
+
+                        // Each version scaffolds onto the pristine base, never onto its predecessor.
+                        sh """
+                            set -e
+                            git checkout -f -B ${branchName} ${env.BASE_SHA}
+                            git clean -fd versions/
+                        """
+
+                        def report = ''
+                        def nodes = ''
+                        def failure = null
+                        try {
+                            report = sh(script: """
+                                set -e
+                                set -o pipefail
+                                python3 ci/version_scan.py scaffold ${mc} \
+                                    --repo "\$WORKSPACE" --pins build/scan.json
+                            """, returnStdout: true).trim()
+                            echo report
+
+                            // The scaffolder is only ever allowed to create versions/<mc>/ and edit
+                            // settings.gradle.kts. Anything else — a stray edit to the root
+                            // gradle.properties (mod.version!), to src/, to either Jenkinsfile — means
+                            // it did something it was not asked to, and the run stops rather than
+                            // pushing it. Cheap check, and it is the one that protects the live mod.
+                            // ':!.jdk' excludes the Temurin the Setup stage unpacks into the
+                            // workspace — it is agent scaffolding, not a repo change (it is also
+                            // .gitignore'd, so this is belt-and-braces).
+                            withEnv(["MC_RE=${mc.replace('.', '\\\\.')}"]) {
+                                sh '''
+                                    set -e
+                                    git status --porcelain -- ':!.jdk' | sed 's/^...//' > build/changed.txt
+                                    echo "changed paths:"; sed 's/^/  /' build/changed.txt
+                                    [ -s build/changed.txt ] || { echo "!! scaffold changed nothing"; exit 1; }
+                                    BAD=$(grep -vE "^(settings\\.gradle\\.kts|versions/$MC_RE/)" build/changed.txt || true)
+                                    if [ -n "$BAD" ]; then
+                                        echo "!! scaffold touched paths it must not:"; echo "$BAD"
+                                        exit 1
+                                    fi
+                                '''
+                            }
+
+                            nodes = report.readLines().find { it.startsWith('nodes ') }?.substring(6)?.trim()
+                            if (!nodes) { error("scaffold produced no node list for ${mc}") }
+                            echo "building only: ${nodes}"
+
+                            withEnv(["BUILD_NODES=${nodes}", "MC=${mc}"]) {
+                                sh '''
+                                    set -e
+                                    set -o pipefail
+                                    export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
+                                    export PATH="$JAVA_HOME/bin:$PATH"
+                                    # -Pbuild.nodes restricts chiseledBuild's expensive per-node work to
+                                    # just these; the whole matrix is 45 nodes and irrelevant here.
+                                    # Tee'd so the failure notification can quote the ACTUAL compile
+                                    # error rather than just linking to a console the reader is not
+                                    # looking at.
+                                    ./gradlew chiseledBuild -Pbuild.nodes="$BUILD_NODES" \
+                                        -x runGameTest -x runClientGameTest --stacktrace \
+                                        2>&1 | tee "build/nodebuild-$MC.log"
+                                '''
+                            }
+
+                            // A chiseled build can "succeed" while producing an empty jar if the
+                            // source was never generated for a node (the documented Stonecutter trap).
+                            // Assert the jars are real before calling this a pass.
+                            sh """
+                                set -e
+                                VERSION=\$(grep -E '^mod\\.version=' gradle.properties | cut -d= -f2)
+                                FOUND=0
+                                for jar in build/libs/\$VERSION/*+${mc}.jar; do
+                                    case "\$jar" in *-sources.jar) continue;; esac
+                                    [ -f "\$jar" ] || continue
+                                    SIZE=\$(wc -c < "\$jar")
+                                    CLASSES=\$(unzip -l "\$jar" | grep -c '\\.class' || true)
+                                    echo "  \$(basename "\$jar") \${SIZE}b \${CLASSES} classes"
+                                    [ "\$SIZE" -gt 10000 ] && [ "\$CLASSES" -gt 0 ] || {
+                                        echo "!! \$jar looks empty"; exit 1; }
+                                    FOUND=\$((FOUND+1))
+                                done
+                                [ "\$FOUND" -gt 0 ] || { echo "!! no jars produced for ${mc}"; exit 1; }
+                                echo "\$FOUND non-empty jar(s) for ${mc}"
+                            """
+                        } catch (err) {
+                            failure = err
+                        }
+
+                        if (failure != null) {
+                            // Expected outcome, not an anomaly: every Minecraft version so far has
+                            // needed new Stonecutter guards, and writing those is explicitly a human's
+                            // job. Report the error and leave NOTHING behind — no branch, no commit,
+                            // no half-scaffolded working tree for the next run to trip over.
+                            // The javac lines are what a human actually needs to see: they name the
+                            // symbol that moved, which is the whole content of "which guard is now
+                            // wrong". Fall back to the tail of the log if nothing looks like javac.
+                            def errors = sh(script: """
+                                LOG=build/nodebuild-${mc}.log
+                                [ -f "\$LOG" ] || { echo '(no build log — failed before Gradle ran)'; exit 0; }
+                                grep -E '^(e: )?.*\\.java:[0-9]+: error:' "\$LOG" | head -12 \
+                                    || tail -25 "\$LOG"
+                            """, returnStdout: true).trim()
+                            notify("MC ${mc}: scaffold does not compile",
+                                   "Fabric/NeoForge shipped ${mc}. Scaffolded (${nodes ?: '?'}) " +
+                                   "and it does not compile — almost certainly new Minecraft API " +
+                                   "boundaries needing Stonecutter guards, which this pipeline will " +
+                                   "not write.\n\n${errors}\n\n" +
+                                   "Nothing was pushed; no branch left behind.\n${env.BUILD_URL}console",
+                                   'construction', 'high')
+                            sh """
+                                set -e
+                                git checkout -f ${env.BASE_SHA}
+                                git clean -fd versions/
+                                git branch -D ${branchName} 2>/dev/null || true
+                            """
+                            error("Minecraft ${mc} scaffold failed to build: ${failure}")
+                        }
+
+                        // Success. Commit exactly the two scaffolded paths — never `git add -A`, so
+                        // there is no way for a stray file (or mod.version) to ride along.
+                        def warnings = report.readLines().findAll { it.startsWith('warn ') }
+                                             .collect { it.substring(5) }
+                        def pins = report.readLines().find { it.startsWith('pins ') }?.substring(5) ?: ''
+                        def loaders = (report.readLines().find { it.startsWith('nodes ') } ?: '')
+                                .replace('nodes ', '').split(';').collect { it.trim().split(' ')[0] }.join(', ')
+
+                        if (params.DRY_RUN) {
+                            echo "DRY_RUN: would have pushed ${branchName}"
+                            sh """
+                                set -e
+                                git checkout -f ${env.BASE_SHA}
+                                git clean -fd versions/
+                                git branch -D ${branchName} 2>/dev/null || true
+                            """
+                            done << mc
+                            continue
+                        }
+
+                        withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
+                            withEnv(["MC=${mc}", "BR=${branchName}", "LOADERS=${loaders}",
+                                     "PINS=${pins}", "WARNINGS=${warnings.join('\n')}",
+                                     "PR_BASE=${params.BASE_BRANCH}"]) {
+                                sh '''
+                                    set -e
+                                    # Identity matches the repo's existing history exactly; the
+                                    # GitHub-linked noreply address is what makes the commit show as
+                                    # SaolGhra's rather than as an unverified stranger.
+                                    git config user.name  "SaolGhra"
+                                    git config user.email "47499708+SaolGhra@users.noreply.github.com"
+
+                                    git add "versions/$MC/gradle.properties" settings.gradle.kts
+                                    {
+                                        echo "feat: scaffold Minecraft $MC ($LOADERS)"
+                                        echo
+                                        echo "Auto-generated by Jenkinsfile.version-scan. Pins resolved from"
+                                        echo "Fabric meta, Fabric API maven, NeoForge maven and Modrinth:"
+                                        echo
+                                        echo "  $PINS"
+                                        echo
+                                        echo "The new node(s) compile clean as-is. This is a DRAFT: a clean"
+                                        echo "compile has never been sufficient on this project, and no"
+                                        echo "Stonecutter guards were reviewed or written. Run the HUD check"
+                                        echo "before merging."
+                                        if [ -n "$WARNINGS" ]; then
+                                            echo
+                                            echo "Needs a look:"
+                                            echo "$WARNINGS" | sed 's/^/  - /'
+                                        fi
+                                    } > build/commitmsg.txt
+                                    git commit -q -F build/commitmsg.txt
+
+                                    # Token on the URL, not in a config file, and never echoed. Jenkins
+                                    # masks the credential in the log regardless.
+                                    set +x
+                                    git push -q "https://x-access-token:$GH_TOKEN@github.com/$GH_REPO.git" \
+                                        "HEAD:refs/heads/$BR"
+                                    set -x
+                                    echo "pushed $BR"
+                                '''
+
+                                if (params.OPEN_PR) {
+                                    // Convenience only — the branch is already pushed, so a PR API
+                                    // failure (permissions, a PR template hook, GitHub having a bad
+                                    // day) must not turn a good result red.
+                                    sh '''
+                                        set -e
+                                        python3 - > build/pr.json <<'PY'
+import json, os
+mc = os.environ['MC']; br = os.environ['BR']; base = os.environ['PR_BASE']
+loaders = os.environ['LOADERS']; pins = os.environ['PINS']
+warnings = [w for w in (os.environ.get('WARNINGS') or '').split('\\n') if w]
+body = [
+    f"Automated scaffold for **Minecraft {mc}** ({loaders}), opened by `Jenkinsfile.version-scan`.",
+    "",
+    "Pins resolved from Fabric meta, the Fabric API maven, the NeoForge maven and Modrinth:",
+    "",
+    "```", pins, "```",
+    "",
+    "The new node(s) **compile clean** with no changes to the shared source.",
+    "",
+    "### This is a draft, not a release",
+    "",
+    "A clean first compile has never been sufficient on this project — every Minecraft version so "
+    "far has had API boundaries that compiled and then rendered wrong. No Stonecutter guards were "
+    "reviewed or written here, and nothing was published. Before merging:",
+    "",
+    "- read the version-guard table and check the boundaries that moved",
+    "- run the root pipeline's HUD check for the new node(s)",
+    "- do not bump `mod.version` from this branch",
+]
+if warnings:
+    body += ["", "### Needs a look", ""] + [f"- {w}" for w in warnings]
+print(json.dumps({"title": f"Scaffold Minecraft {mc} ({loaders})", "head": br,
+                  "base": base, "body": "\\n".join(body), "draft": True}))
+PY
+                                        curl -sS -X POST \
+                                            -H "Authorization: Bearer $GH_TOKEN" \
+                                            -H "Accept: application/vnd.github+json" \
+                                            -d @build/pr.json \
+                                            "https://api.github.com/repos/$GH_REPO/pulls" \
+                                            | grep -oE '"html_url": *"[^"]*/pull/[0-9]+"' | head -1 \
+                                            || echo "(PR not opened — branch $BR is pushed regardless)"
+                                    '''
+                                }
+                            }
+                        }
+
+                        notify("MC ${mc} scaffolded — review ${branchName}",
+                               "Fabric/NeoForge released ${mc}. Scaffolded (${loaders}) and it compiles " +
+                               "clean.\n\n${pins}\n\n" +
+                               (warnings ? "Needs a look:\n- " + warnings.join("\n- ") + "\n\n" : "") +
+                               "DRAFT ONLY — no guards reviewed, nothing published, mod.version untouched. " +
+                               "Run the HUD check before merging.\n\n" +
+                               "https://github.com/${env.GH_REPO}/tree/${branchName}",
+                               'sparkles', 'high')
+                        done << mc
+
+                        // Back to the pristine base for the next version in the list.
+                        sh """
+                            set -e
+                            git checkout -f ${env.BASE_SHA}
+                            git clean -fd versions/
+                        """
+                    }
+
+                    echo "scaffolded: ${done ?: 'none'}; already raised: ${skipped ?: 'none'}"
+                    currentBuild.description = done ? "new: ${done.join(', ')}" : 'nothing new'
+                }
+            }
+        }
+    }
+
+    post {
+        failure {
+            script {
+                // Distinct from the per-version "does not compile" notification above, which is an
+                // expected outcome. This one means the SCANNER broke — an upstream API moved, the
+                // agent lost network, credentials expired.
+                notify('Version scan FAILED', "${env.BUILD_URL}", 'rotating_light', 'high')
+            }
+        }
+        always {
+            archiveArtifacts artifacts: 'build/scan.txt,build/scan.json,build/selftest.txt',
+                             allowEmptyArchive: true
+            cleanWs()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Wiring this up in Jenkins (one-time, needs no changes to the existing job)
+//
+//  1. New Item -> name it e.g. "armor-hud-version-scan" -> Pipeline -> OK.
+//
+//  2. Under "Pipeline":
+//        Definition:        Pipeline script from SCM
+//        SCM:               Git
+//        Repository URL:    the same one the existing armor-hud job uses
+//        Credentials:       the same ones the existing armor-hud job uses
+//        Branch Specifier:  */compatability-upgrade
+//        Script Path:       Jenkinsfile.version-scan          <-- the only field that differs
+//        Lightweight checkout: UNTICK it. This job needs a real working tree (it writes files, runs
+//                              Gradle and pushes a branch); a lightweight checkout only fetches the
+//                              Jenkinsfile.
+//
+//  3. Save, then run it once by hand with DRY_RUN ticked. Expect: selftest all-ok, "nothing new",
+//     no branch, no notification. That is the correct quiet result.
+//
+//  4. To see the positive path before a real Minecraft version ever lands, run it once with
+//     FORCE_VERSION set to a version the repo already has (e.g. 26.2) and DRY_RUN ticked. It will
+//     re-resolve that version's pins from upstream, scaffold it, build only its two nodes, print the
+//     diff, and throw the branch away. Untick DRY_RUN only when you actually want branches.
+//
+//  5. The cron trigger (daily, ~06:00) is declared in this file, so it starts on its own after the
+//     first manual run. Jenkins ignores a declarative `triggers` block until the job has been built
+//     once — that first manual run is what arms it.
+//
+//  6. Credentials used: `github-token` (the same string credential the existing job uses for
+//     releases). It needs `contents:write` to push the branch, and `pull_requests:write` if OPEN_PR
+//     stays ticked. Nothing else is needed — this job never touches the Modrinth token.
+//
+//  7. Concurrency: `disableConcurrentBuilds()` is set here, and this job shares GRADLE_USER_HOME
+//     with the main one. That sharing is intentional (the dependency cache is the expensive part)
+//     and safe — Gradle locks the cache — but a scan running at the same time as a full matrix build
+//     will simply wait on it.
+// ---------------------------------------------------------------------------------------------

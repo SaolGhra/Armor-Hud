@@ -123,3 +123,6 @@ remappedSrc/
 **/stonecutter-cache/
 .claude/
 scripts/
+
+# JDK the CI pipelines provision into the workspace (see Jenkinsfile / Jenkinsfile.version-scan)
+.jdk/

@@ -16,8 +16,18 @@ stonecutter active "1.20" /* [SC] DO NOT EDIT */
 // Builds every version into `build/libs/{mod.version}/{loader}`. Use chiseled builds, NOT
 // `:loader:version:build` directly — Stonecutter only generates a version's source when it is the
 // active build target, so a direct node build produces an EMPTY jar for any non-active version.
+// Restrict to specific nodes with -Pbuild.nodes="fabric 26.3;neoforge 26.3" (the same "<loader> <mc>"
+// format HUD_NODES/PUBLISH_NODES/publish.nodes use). Absent/blank means the whole matrix, exactly as
+// before this existed. Jenkinsfile.version-scan uses it to compile ONLY a newly-scaffolded version
+// instead of paying for all 45 nodes to answer a question about one of them.
 stonecutter registerChiseled tasks.register("chiseledBuild", stonecutter.chiseled) {
     group = "project"
+    val restrict = (findProperty("build.nodes") as String?)?.trim()
+    if (!restrict.isNullOrEmpty()) {
+        val wanted = restrict.split(";").map { it.trim() }.filter { it.isNotEmpty() }
+            .map { it.split(Regex("\\s+"), 2) }
+        versions { branch, version -> wanted.any { it[0] == branch && it.getOrNull(1) == version.version } }
+    }
     ofTask("buildAndCollect")
 }
 
