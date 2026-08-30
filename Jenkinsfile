@@ -86,12 +86,21 @@ pipeline {
                 description: 'Fabric Client GameTest screenshot tests (1.21.5+ only).')
 
         booleanParam(name: 'PUBLISH_GITHUB', defaultValue: false,
-                description: 'Create a GitHub release for mod.version and attach every jar.')
+                description: 'Create a GitHub release for mod.version and attach every jar, once ' +
+                        'approved at the Release? prompt.')
         booleanParam(name: 'PUBLISH_MODRINTH', defaultValue: false,
-                description: 'Upload every jar to Modrinth (needs the modrinth-token credential).')
+                description: 'Upload every jar to Modrinth (needs the modrinth-token credential), ' +
+                        'once approved at the Release? prompt.')
+        booleanParam(name: 'ASK_TO_RELEASE', defaultValue: true,
+                description: 'When PUBLISH_GITHUB or PUBLISH_MODRINTH is set and every check passes, ' +
+                        'pause and ask for confirmation (and the changelog) before publishing, the ' +
+                        'same way this is the only point a human is actually present for a ' +
+                        'pollSCM-triggered build, where CHANGELOG is always empty. Untick to publish ' +
+                        'unattended using CHANGELOG as typed in here instead.')
         text(name: 'CHANGELOG', defaultValue: '',
-                description: 'Release notes. Used as the GitHub release body and as the Modrinth ' +
-                        'changelog on every uploaded version. Markdown.')
+                description: 'Pre-fills the release-notes box shown at the Release? prompt (or is ' +
+                        'used as-is if ASK_TO_RELEASE is unticked). Used as the GitHub release body ' +
+                        'and as the Modrinth changelog on every uploaded version. Markdown.')
 
         booleanParam(name: 'DIAGNOSE_HUD', defaultValue: false,
                 description: 'Debug loop for the HUD check: skips the matrix build, probes the ' +
@@ -556,15 +565,81 @@ pipeline {
         }
 
         // Publishing is opt-in and never part of a verification run: it happens when someone has
-        // looked at the results and decided they are good.
+        // looked at the results and decided they are good. ASK_TO_RELEASE pauses right here for
+        // that decision (and the changelog) instead of requiring both up front — a pollSCM-triggered
+        // build always takes parameter defaults, so CHANGELOG is empty on exactly the builds that
+        // matter; asking now, once the build and every check has actually passed, is the only point
+        // a human is present to fill it in.
+        stage('Release?') {
+            when { expression { return !params.DIAGNOSE_HUD &&
+                    (params.PUBLISH_GITHUB || params.PUBLISH_MODRINTH) } }
+            steps {
+                script {
+                    def filter = params.PUBLISH_NODES?.trim() ?
+                            expandNodes(params.PUBLISH_NODES, loadNodeMap()).join(';') : ''
+                    withEnv(["PUBLISH_NODE_FILTER=${filter}"]) {
+                        env.RELEASE_JAR_COUNT = sh(script: '''
+                            set -e
+                            VERSION=$(grep -E '^mod\\.version=' gradle.properties | cut -d= -f2)
+                            COUNT=0
+                            for jar in build/libs/*/*.jar; do
+                                case "$jar" in *-sources.jar) continue;; esac
+                                name=$(basename "$jar")
+                                if [ -n "$PUBLISH_NODE_FILTER" ]; then
+                                    rest="${name#armor_hud-}"; rest="${rest%.jar}"
+                                    loader="${rest%%-"$VERSION"+*}"
+                                    mc="${rest##*-"$VERSION"+}"
+                                    case ";$PUBLISH_NODE_FILTER;" in
+                                        *";$loader $mc;"*) ;;
+                                        *) continue ;;
+                                    esac
+                                fi
+                                COUNT=$((COUNT+1))
+                            done
+                            echo "$COUNT"
+                        ''', returnStdout: true).trim()
+                    }
+
+                    if (!params.ASK_TO_RELEASE) {
+                        env.RELEASE_NOTES = params.CHANGELOG ?: ''
+                        env.DO_RELEASE = 'true'
+                        return
+                    }
+
+                    notify("Ready to release — approval needed",
+                           "${env.RELEASE_JAR_COUNT} jars built and verified. ${env.BUILD_URL}input",
+                           'question', 'high')
+
+                    // Times out rather than pinning an executor forever. Aborting on timeout is the
+                    // safe default: not releasing is always recoverable, releasing is not.
+                    def notes
+                    timeout(time: 12, unit: 'HOURS') {
+                        notes = input(
+                            message: "Publish ${env.RELEASE_JAR_COUNT} jars?",
+                            ok: 'Release',
+                            parameters: [text(name: 'RELEASE_NOTES',
+                                    defaultValue: params.CHANGELOG ?: '',
+                                    description: 'Release notes. Used as the GitHub release body ' +
+                                            'and as the Modrinth changelog on every uploaded ' +
+                                            'version. Markdown. Leave blank for a bare version line.')]
+                        )
+                    }
+                    env.RELEASE_NOTES = notes ?: ''
+                    env.DO_RELEASE = 'true'
+                }
+            }
+        }
+
         stage('Publish to GitHub') {
-            when { expression { return params.PUBLISH_GITHUB } }
+            when { expression { return params.PUBLISH_GITHUB && env.DO_RELEASE == 'true' } }
             steps {
                 script { notify("Publishing to GitHub…", "release for the current mod.version", 'rocket') }
                 // The changelog goes through a file rather than the command line: release notes are
                 // multi-line and contain quotes and backticks, which would be mangled or would break
-                // the shell if interpolated into it.
-                writeFile file: 'build/changelog.md', text: params.CHANGELOG ?: ''
+                // the shell if interpolated into it. env.RELEASE_NOTES is what was actually approved
+                // at the Release? prompt (or params.CHANGELOG verbatim if ASK_TO_RELEASE was unticked)
+                // — not params.CHANGELOG directly, which is only ever the pre-fill.
+                writeFile file: 'build/changelog.md', text: env.RELEASE_NOTES ?: ''
                 script {
                     // Empty PUBLISH_NODES (the common "everything is genuinely new" release) attaches
                     // every built jar, same as before this existed. A restricted list only attaches
@@ -637,10 +712,11 @@ PY
         }
 
         stage('Publish to Modrinth') {
-            when { expression { return params.PUBLISH_MODRINTH } }
+            when { expression { return params.PUBLISH_MODRINTH && env.DO_RELEASE == 'true' } }
             steps {
                 script { notify("Publishing to Modrinth…", "uploading the matrix", 'rocket') }
-                writeFile file: 'build/changelog.md', text: params.CHANGELOG ?: ''
+                // See the Publish to GitHub stage: env.RELEASE_NOTES, not params.CHANGELOG directly.
+                writeFile file: 'build/changelog.md', text: env.RELEASE_NOTES ?: ''
                 script {
                     // Empty PUBLISH_NODES publishes every node, same as before this existed. See
                     // PUBLISH_NODES' own description, and chiseledPublish's publish.nodes property.
