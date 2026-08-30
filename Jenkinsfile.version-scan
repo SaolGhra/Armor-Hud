@@ -188,12 +188,16 @@ pipeline {
             when { expression { return env.NEW_VERSIONS?.trim() } }
             steps {
                 script {
-                    def versions = env.NEW_VERSIONS.trim().readLines().collect { it.trim() }.findAll { it }
+                    // Slugs, not bare versions: a brand-new version's slug IS its version, but a
+                    // NeoForge catch-up on a version the repo already has (NeoForge always lags
+                    // Fabric, so Fabric-only nodes are normal and temporary) is slugged
+                    // "<mc>-neoforge" so it gets its own branch.
+                    def slugs = env.NEW_VERSIONS.trim().readLines().collect { it.trim() }.findAll { it }
                     def done = []
                     def skipped = []
 
-                    for (mc in versions) {
-                        def branchName = "auto/mc-${mc}"
+                    for (slug in slugs) {
+                        def branchName = "auto/mc-${slug}"
 
                         // A daily cron must not re-open the same draft every morning while it waits
                         // for a human. An existing remote branch means "already raised".
@@ -201,28 +205,34 @@ pipeline {
                                         returnStdout: true).trim()
                         if (exists != '0') {
                             echo "${branchName} already exists on the remote — already raised, skipping"
-                            skipped << mc
+                            skipped << slug
                             continue
                         }
 
                         // Each version scaffolds onto the pristine base, never onto its predecessor.
+                        // gradlew is mode 100644 in the index, so every `git checkout -f` strips the
+                        // executable bit the Setup stage added — re-add it after each one or the
+                        // build stage dies with "Permission denied" before Gradle is even reached.
                         sh """
                             set -e
                             git checkout -f -B ${branchName} ${env.BASE_SHA}
                             git clean -fd versions/
+                            chmod +x gradlew
                         """
 
                         def report = ''
                         def nodes = ''
+                        def mc = slug          // replaced from the report; equal for a brand-new version
                         def failure = null
                         try {
                             report = sh(script: """
                                 set -e
                                 set -o pipefail
-                                python3 ci/version_scan.py scaffold ${mc} \
+                                python3 ci/version_scan.py scaffold ${slug} \
                                     --repo "\$WORKSPACE" --pins build/scan.json
                             """, returnStdout: true).trim()
                             echo report
+                            mc = report.readLines().find { it.startsWith('mc ') }?.substring(3)?.trim() ?: slug
 
                             // The scaffolder is only ever allowed to create versions/<mc>/ and edit
                             // settings.gradle.kts. Anything else — a stray edit to the root
@@ -299,11 +309,19 @@ pipeline {
                             // The javac lines are what a human actually needs to see: they name the
                             // symbol that moved, which is the whole content of "which guard is now
                             // wrong". Fall back to the tail of the log if nothing looks like javac.
+                            // Three shapes, in order of usefulness: javac errors (the API boundary
+                            // that moved — the whole answer); Gradle's own "What went wrong" block
+                            // (dependency resolution, a pin that does not exist); otherwise the tail.
+                            // NOT `grep | head || fallback` — a pipeline's status is head's, so the
+                            // fallback would never fire and the notification would arrive empty.
                             def errors = sh(script: """
                                 LOG=build/nodebuild-${mc}.log
                                 [ -f "\$LOG" ] || { echo '(no build log — failed before Gradle ran)'; exit 0; }
-                                grep -E '^(e: )?.*\\.java:[0-9]+: error:' "\$LOG" | head -12 \
-                                    || tail -25 "\$LOG"
+                                ERR=\$(grep -E '\\.java:[0-9]+: error:' "\$LOG" | head -12)
+                                [ -n "\$ERR" ] || ERR=\$(sed -n '/^\\* What went wrong:/,/^\\* Try:/p' "\$LOG" \\
+                                                        | grep -v '^\\* Try:' | head -14)
+                                [ -n "\$ERR" ] || ERR=\$(tail -20 "\$LOG")
+                                printf '%s\\n' "\$ERR"
                             """, returnStdout: true).trim()
                             notify("MC ${mc}: scaffold does not compile",
                                    "Fabric/NeoForge shipped ${mc}. Scaffolded (${nodes ?: '?'}) " +
@@ -328,6 +346,10 @@ pipeline {
                         def pins = report.readLines().find { it.startsWith('pins ') }?.substring(5) ?: ''
                         def loaders = (report.readLines().find { it.startsWith('nodes ') } ?: '')
                                 .replace('nodes ', '').split(';').collect { it.trim().split(' ')[0] }.join(', ')
+                        def kind = report.readLines().find { it.startsWith('kind ') }?.substring(5)?.trim() ?: 'new'
+                        def subject = kind == 'neoforge-catchup'
+                                ? "feat: add NeoForge support for Minecraft ${mc}"
+                                : "feat: scaffold Minecraft ${mc} (${loaders})"
 
                         if (params.DRY_RUN) {
                             echo "DRY_RUN: would have pushed ${branchName}"
@@ -337,14 +359,14 @@ pipeline {
                                 git clean -fd versions/
                                 git branch -D ${branchName} 2>/dev/null || true
                             """
-                            done << mc
+                            done << slug
                             continue
                         }
 
                         withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
                             withEnv(["MC=${mc}", "BR=${branchName}", "LOADERS=${loaders}",
                                      "PINS=${pins}", "WARNINGS=${warnings.join('\n')}",
-                                     "PR_BASE=${params.BASE_BRANCH}"]) {
+                                     "SUBJECT=${subject}", "PR_BASE=${params.BASE_BRANCH}"]) {
                                 sh '''
                                     set -e
                                     # Identity matches the repo's existing history exactly; the
@@ -355,7 +377,7 @@ pipeline {
 
                                     git add "versions/$MC/gradle.properties" settings.gradle.kts
                                     {
-                                        echo "feat: scaffold Minecraft $MC ($LOADERS)"
+                                        echo "$SUBJECT"
                                         echo
                                         echo "Auto-generated by Jenkinsfile.version-scan. Pins resolved from"
                                         echo "Fabric meta, Fabric API maven, NeoForge maven and Modrinth:"
@@ -430,7 +452,7 @@ PY
                             }
                         }
 
-                        notify("MC ${mc} scaffolded — review ${branchName}",
+                        notify("MC ${slug} scaffolded — review ${branchName}",
                                "Fabric/NeoForge released ${mc}. Scaffolded (${loaders}) and it compiles " +
                                "clean.\n\n${pins}\n\n" +
                                (warnings ? "Needs a look:\n- " + warnings.join("\n- ") + "\n\n" : "") +
@@ -438,7 +460,7 @@ PY
                                "Run the HUD check before merging.\n\n" +
                                "https://github.com/${env.GH_REPO}/tree/${branchName}",
                                'sparkles', 'high')
-                        done << mc
+                        done << slug
 
                         // Back to the pristine base for the next version in the list.
                         sh """

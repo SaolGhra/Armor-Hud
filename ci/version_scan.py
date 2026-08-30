@@ -303,6 +303,8 @@ def detect(repo: str, force_missing: list[str]) -> dict:
         modmenu, modmenu_exact = resolve_modmenu(mc, prev_modmenu)
         found.append({
             "mc": mc,
+            "kind": "new",
+            "slug": mc,
             "fabric": bool(fabric_api),
             "neoforge": bool(neoforge),
             "fabric_loader": loader,
@@ -318,12 +320,50 @@ def detect(repo: str, force_missing: list[str]) -> dict:
             "java": java_target(mc),
         })
 
+    # NeoForge always lags Fabric, so a version scaffolded Fabric-only is not finished — it needs
+    # revisiting when NeoForge catches up, which the "newer than the newest node" rule above would
+    # never surface (the version is already present). Look for exactly that: a node this repo has,
+    # marked [UNSUPPORTED] for NeoForge, that NeoForge has since released for.
+    for mc in existing:
+        if mc in pretend_missing:
+            continue
+        props = read_props(os.path.join(repo, "versions", mc, "gradle.properties"))
+        if props.get("deps.neoforge_loader", "[UNSUPPORTED]") != "[UNSUPPORTED]":
+            continue
+        neoforge, nf_beta, nf_confirmed = resolve_neoforge(mc, versions=nf_versions)
+        if not neoforge:
+            continue  # 1.20 / 1.20.1: NeoForge did not exist yet and never will for them.
+        found.append({
+            "mc": mc,
+            "kind": "neoforge-catchup",
+            "slug": f"{mc}-neoforge",
+            "fabric": False,
+            "neoforge": True,
+            "fabric_loader": props.get("deps.fabric_loader"),
+            "fabric_api": props.get("deps.fabric_api"),
+            "neoforge_loader": neoforge,
+            "neoforge_beta": nf_beta,
+            "neoforge_confirmed": nf_confirmed,
+            "modmenu": props.get("deps.modmenu"),
+            "modmenu_exact": True,
+            "unobfuscated": props.get("mod.unobfuscated") == "true",
+            "java": java_target(mc),
+        })
+
     return {"highest_existing": highest, "existing": existing, "new": found}
 
 
 def describe(entry: dict) -> list[str]:
     """Human-readable warnings worth putting in front of a reviewer."""
     notes = []
+    if entry.get("kind") == "neoforge-catchup":
+        notes.append(f"NeoForge has caught up with Minecraft {entry['mc']}, which this repo has as "
+                     f"Fabric-only. Adds the NeoForge node; the Fabric pins are left alone.")
+        if entry["neoforge_beta"]:
+            notes.append(f"NeoForge pin {entry['neoforge_loader']} is a BETA (no stable exists yet).")
+        if not entry["neoforge_confirmed"]:
+            notes.append("NeoForge pin could not be confirmed against its own moddev-config.json.")
+        return notes
     if entry["fabric"] and not entry["neoforge"]:
         notes.append("Fabric only — NeoForge has not released for this version yet.")
     if entry["neoforge"] and not entry["fabric"]:
@@ -412,9 +452,62 @@ def _insert_into_block(text: str, close_idx: int, mc: str) -> str:
     return head + f'{indent}"{mc}",\n' + text[line_start:]
 
 
+def scaffold_neoforge_catchup(repo: str, entry: dict) -> list[str]:
+    """Turn an existing Fabric-only node into a Fabric+NeoForge one, now that NeoForge has released
+    for that Minecraft version.
+
+    Deliberately surgical: it rewrites the one `deps.neoforge_loader=` line and adds the version to
+    the neoforge branch list. It does NOT regenerate the whole properties file — that would drag the
+    Fabric pins of an already-shipped node forward as a side effect of an unrelated change.
+    """
+    mc = entry["mc"]
+    touched = []
+
+    props_path = os.path.join(repo, "versions", mc, "gradle.properties")
+    with open(props_path, encoding="utf-8") as fh:
+        lines = fh.readlines()
+    out, replaced = [], False
+    for line in lines:
+        if line.startswith("deps.neoforge_loader="):
+            if entry["neoforge_beta"]:
+                out.append("# No stable NeoForge release exists for this version yet; the beta IS\n"
+                           "# the shipping loader here.\n")
+            out.append(f"deps.neoforge_loader={entry['neoforge_loader']}\n")
+            replaced = True
+        elif line.lstrip().startswith("#") and "NeoForge has not released" in line:
+            continue          # drop the now-false "Fabric-only until it does" note
+        elif line.lstrip().startswith("#") and "Fabric-only until it does" in line:
+            continue
+        elif line.lstrip().startswith("#") and 'branch("neoforge") list' in line:
+            continue
+        else:
+            out.append(line)
+    if not replaced:
+        raise RuntimeError(f"versions/{mc}/gradle.properties has no deps.neoforge_loader line")
+    with open(props_path, "w", encoding="utf-8") as fh:
+        fh.writelines(out)
+    touched.append(os.path.relpath(props_path, repo))
+
+    spath = settings_path(repo)
+    with open(spath, encoding="utf-8") as fh:
+        text = fh.read()
+    nf_anchor = text.index('branch("neoforge")')
+    nf_open, nf_close = _find_block(text, nf_anchor)
+    if f'"{mc}"' in text[nf_open:nf_close]:
+        raise RuntimeError(f'{mc} is already in settings.gradle.kts branch("neoforge")')
+    text = _insert_into_block(text, nf_close, mc)
+    with open(spath, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    touched.append(os.path.relpath(spath, repo))
+    return touched
+
+
 def scaffold(repo: str, entry: dict) -> list[str]:
     """Write versions/<mc>/gradle.properties and register the version in settings.gradle.kts.
     Returns the paths touched."""
+    if entry.get("kind") == "neoforge-catchup":
+        return scaffold_neoforge_catchup(repo, entry)
+
     mc = entry["mc"]
     touched = []
 
@@ -549,7 +642,7 @@ def main() -> int:
 
     s = sub.add_parser("scaffold", parents=[common],
                        help="write versions/<mc>/ and register it in settings.gradle.kts")
-    s.add_argument("mc")
+    s.add_argument("slug", help="a slug from `detect --versions-out` (a bare version also works)")
     s.add_argument("--pins", required=True, help="the JSON written by `detect --json`")
 
     t = sub.add_parser("selftest", parents=[common],
@@ -572,8 +665,10 @@ def main() -> int:
         if args.versions_out:
             # Oldest first: versions are scaffolded in release order, so if two land between runs the
             # older one gets its branch before the newer one is even attempted.
+            # Slugs, not bare versions: a NeoForge catch-up for a version the repo already has is a
+            # different job from a brand-new version, and needs its own branch name.
             with open(args.versions_out, "w", encoding="utf-8") as fh:
-                fh.write("".join(e["mc"] + "\n" for e in result["new"]))
+                fh.write("".join(e["slug"] + "\n" for e in result["new"]))
         print(f"newest node in repo: {result['highest_existing']}")
         if not result["new"]:
             print("nothing new — every released Minecraft version with loader support is present")
@@ -581,7 +676,8 @@ def main() -> int:
         for entry in result["new"]:
             loaders = "+".join(l for l, on in
                                (("fabric", entry["fabric"]), ("neoforge", entry["neoforge"])) if on)
-            print(f"NEW {entry['mc']} ({loaders})")
+            label = "NEW" if entry["kind"] == "new" else "CATCHUP"
+            print(f"{label} {entry['mc']} ({loaders})  [slug {entry['slug']}]")
             print(f"    fabric_loader   {entry['fabric_loader']}")
             print(f"    fabric_api      {entry['fabric_api']}")
             print(f"    neoforge_loader {entry['neoforge_loader']}")
@@ -595,9 +691,11 @@ def main() -> int:
     if args.cmd == "scaffold":
         with open(args.pins, encoding="utf-8") as fh:
             data = json.load(fh)
-        entry = next((e for e in data["new"] if e["mc"] == args.mc), None)
+        entry = next((e for e in data["new"] if e.get("slug", e["mc"]) == args.slug), None)
         if entry is None:
-            print(f"!! {args.mc} is not in {args.pins}", file=sys.stderr)
+            entry = next((e for e in data["new"] if e["mc"] == args.slug), None)
+        if entry is None:
+            print(f"!! {args.slug} is not in {args.pins}", file=sys.stderr)
             return 1
         touched = scaffold(repo, entry)
         # Everything below "nodes " / "warn " is consumed by Jenkinsfile.version-scan, which greps it
@@ -605,6 +703,8 @@ def main() -> int:
         # that may not be installed). Keep these prefixes stable.
         for path in touched:
             print(f"wrote {path}")
+        print(f"mc {entry['mc']}")
+        print(f"kind {entry['kind']}")
         print("nodes " + "; ".join(nodes_for(entry)))
         print(f"pins fabric_loader={entry['fabric_loader']} "
               f"fabric_api={entry['fabric_api']} "
