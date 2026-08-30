@@ -21,10 +21,34 @@ stonecutter registerChiseled tasks.register("chiseledBuild", stonecutter.chisele
     ofTask("buildAndCollect")
 }
 
-// Publishes every version to Modrinth (dry-run unless MODRINTH_TOKEN is set).
+// Publishes every version to Modrinth (dry-run unless MODRINTH_TOKEN is set). Restrict to specific
+// nodes with -Ppublish.nodes="fabric 26.2;neoforge 26.2" (same "<loader> <mc>" format Jenkins'
+// HUD_NODES/PUBLISH_NODES parameters use) -- a mod.version bump for one new Minecraft version has
+// no reason to touch every other node's already-published Modrinth entry. Absent/blank means the
+// whole matrix, same as before this existed.
 stonecutter registerChiseled tasks.register("chiseledPublish", stonecutter.chiseled) {
     group = "project"
+    val restrict = (findProperty("publish.nodes") as String?)?.trim()
+    if (!restrict.isNullOrEmpty()) {
+        val wanted = restrict.split(";").map { it.trim() }.filter { it.isNotEmpty() }
+            .map { it.split(Regex("\\s+"), 2) }
+        versions { branch, version -> wanted.any { it[0] == branch && it.getOrNull(1) == version.version } }
+    }
     ofTask("publishMods")
+}
+
+// Prints every "<loader> <mc>" node that actually exists, one per line -- the authoritative source
+// for Jenkinsfile's node lists. A hand-copied list drifts the moment a version is added or removed
+// here without someone remembering to update the copy too (this is exactly what happened: an older
+// hand-copied list in the Jenkinsfile was silently missing every 26.x node).
+tasks.register("printNodes") {
+    group = "project"
+    doLast {
+        for (node in stonecutter.tree.nodes) {
+            if (node.branch.id.isEmpty()) continue
+            println("${node.branch.id} ${node.metadata.version}")
+        }
+    }
 }
 
 // Builds loader-specific versions into `build/libs/{mod.version}/{loader}`

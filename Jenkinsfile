@@ -31,6 +31,44 @@ def notify(String title, String message, String tags = 'gear', String priority =
     }
 }
 
+// The authoritative "<loader>: [<mc>, ...]" map, pulled from the Stonecutter tree itself via the
+// `printNodes` Gradle task rather than hand-copied here. A hand-copied list silently drifts the
+// moment a version is added to or removed from settings.gradle.kts — this replaced exactly such a
+// list, which had gone stale and was missing every 26.x node.
+def loadNodeMap() {
+    def out = sh(script: '''
+        set -e
+        export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
+        export PATH="$JAVA_HOME/bin:$PATH"
+        ./gradlew printNodes -q
+    ''', returnStdout: true).trim()
+    def map = [:]
+    out.readLines().each { line ->
+        def parts = line.trim().split(/\s+/)
+        if (parts.size() != 2) { return } // e.g. Stonecutter's own "Running Stonecutter 0.6" banner
+        map.computeIfAbsent(parts[0]) { [] } << parts[1]
+    }
+    return map
+}
+
+// Expands a ";"-separated "<loader> <mc>" list (bare "<loader>" means every version of it) against
+// the given node map. Empty/blank raw means "everything" — used by both HUD_NODES and PUBLISH_NODES.
+def expandNodes(String raw, Map allVersions) {
+    def entries = raw?.trim() ? (raw.split(';') as List) : (allVersions.keySet() as List)
+    def nodes = []
+    entries.each { rawEntry ->
+        def entry = rawEntry.trim()
+        if (!entry) { return }
+        def parts = entry.split(/\s+/)
+        if (parts.size() == 1) {
+            (allVersions[parts[0]] ?: []).each { v -> nodes << ("${parts[0]} ${v}" as String) }
+        } else {
+            nodes << entry
+        }
+    }
+    return nodes
+}
+
 pipeline {
     agent { label 'linux' }
 
@@ -64,6 +102,13 @@ pipeline {
                 description: 'Restrict RUN_HUD_CHECK to a ";"-separated list of "<loader> <mc>" (or ' +
                         'bare "<loader>" for all its versions). Empty = the whole matrix. Lets a long ' +
                         'run be split into agent-sized batches.')
+        string(name: 'PUBLISH_NODES', defaultValue: '',
+                description: 'Restrict PUBLISH_GITHUB/PUBLISH_MODRINTH to a ";"-separated list of ' +
+                        '"<loader> <mc>" (or bare "<loader>" for all its versions), same format as ' +
+                        'HUD_NODES. Empty = the whole matrix — use that for a release where every ' +
+                        'node is genuinely new/changed; set this for a release that only adds or ' +
+                        'fixes specific nodes, so the rest keep their existing Modrinth entries ' +
+                        'instead of getting a redundant unchanged one.')
 
         string(name: 'NOTIFY_URL', defaultValue: 'https://notify.saolghra.co.uk/builds',
                 description: 'ntfy topic for progress notifications. Empty disables them.')
@@ -249,31 +294,7 @@ pipeline {
             when { expression { return params.RUN_HUD_CHECK && !params.DIAGNOSE_HUD } }
             steps {
                 script {
-                    // Mirrors settings.gradle.kts. Only used to expand a bare loader token (e.g. a
-                    // plain "neoforge" in HUD_NODES) into every version of it, same meaning
-                    // hud_ingame.sh already gives a bare loader argument.
-                    def allVersions = [
-                        fabric: ['1.20','1.20.1','1.20.2','1.20.3','1.20.4','1.20.5','1.20.6',
-                                 '1.21','1.21.1','1.21.2','1.21.3','1.21.4','1.21.5','1.21.6',
-                                 '1.21.7','1.21.8','1.21.9','1.21.10','1.21.11'],
-                        neoforge: ['1.20.2','1.20.3','1.20.4','1.20.5','1.20.6',
-                                   '1.21','1.21.1','1.21.2','1.21.3','1.21.4','1.21.5','1.21.6',
-                                   '1.21.7','1.21.8','1.21.9','1.21.10','1.21.11'],
-                        forge: ['1.20.1'],
-                    ]
-
-                    def raw = params.HUD_NODES?.trim() ? (params.HUD_NODES.split(';') as List) : (allVersions.keySet() as List)
-                    def nodes = []
-                    raw.each { rawEntry ->
-                        def entry = rawEntry.trim()
-                        if (!entry) return
-                        def parts = entry.split(/\s+/)
-                        if (parts.size() == 1) {
-                            (allVersions[parts[0]] ?: []).each { v -> nodes << ("${parts[0]} ${v}" as String) }
-                        } else {
-                            nodes << entry
-                        }
-                    }
+                    def nodes = expandNodes(params.HUD_NODES, loadNodeMap())
 
                     // Capped at 2: the CI host also runs the user's other live production services
                     // (not dedicated CI capacity). 4 concurrent llvmpipe (software GL) Minecraft
@@ -544,6 +565,13 @@ pipeline {
                 // multi-line and contain quotes and backticks, which would be mangled or would break
                 // the shell if interpolated into it.
                 writeFile file: 'build/changelog.md', text: params.CHANGELOG ?: ''
+                script {
+                    // Empty PUBLISH_NODES (the common "everything is genuinely new" release) attaches
+                    // every built jar, same as before this existed. A restricted list only attaches
+                    // the matching jars — see PUBLISH_NODES' own description for why.
+                    env.PUBLISH_NODE_FILTER = params.PUBLISH_NODES?.trim() ?
+                            expandNodes(params.PUBLISH_NODES, loadNodeMap()).join(';') : ''
+                }
                 withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
                     sh '''
                         set -e
@@ -577,11 +605,23 @@ PY
                             "https://api.github.com/repos/$REPO/releases" \
                             | python3 -c "import json,sys; print(json.load(sys.stdin)['upload_url'].split('{')[0])")
 
-                        # Attach every built jar, sources excluded.
+                        # Attach every built jar, sources excluded — or, if PUBLISH_NODE_FILTER is
+                        # set, only the jars for those specific "<loader> <mc>" nodes. Jar names are
+                        # armor_hud-<loader>-<VERSION>+<mc>.jar, and VERSION is already known exactly,
+                        # so it splits the name cleanly without guessing at a regex for it.
                         COUNT=0
                         for jar in build/libs/*/*.jar; do
                             case "$jar" in *-sources.jar) continue;; esac
                             name=$(basename "$jar")
+                            if [ -n "$PUBLISH_NODE_FILTER" ]; then
+                                rest="${name#armor_hud-}"; rest="${rest%.jar}"
+                                loader="${rest%%-"$VERSION"+*}"
+                                mc="${rest##*-"$VERSION"+}"
+                                case ";$PUBLISH_NODE_FILTER;" in
+                                    *";$loader $mc;"*) ;;
+                                    *) continue ;;
+                                esac
+                            fi
                             curl -sS -X POST \
                                 -H "Authorization: Bearer $GH_TOKEN" \
                                 -H "Content-Type: application/java-archive" \
@@ -601,16 +641,25 @@ PY
             steps {
                 script { notify("Publishing to Modrinth…", "uploading the matrix", 'rocket') }
                 writeFile file: 'build/changelog.md', text: params.CHANGELOG ?: ''
+                script {
+                    // Empty PUBLISH_NODES publishes every node, same as before this existed. See
+                    // PUBLISH_NODES' own description, and chiseledPublish's publish.nodes property.
+                    env.PUBLISH_NODE_FILTER = params.PUBLISH_NODES?.trim() ?
+                            expandNodes(params.PUBLISH_NODES, loadNodeMap()).join(';') : ''
+                }
                 withCredentials([string(credentialsId: 'modrinth-token', variable: 'MODRINTH_TOKEN')]) {
                     sh '''
                         set -e
                         export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
                         export PATH="$JAVA_HOME/bin:$PATH"
-                        # chiseledPublish runs publishMods for every version (each with its source active).
+                        NODES_ARG=""
+                        [ -n "$PUBLISH_NODE_FILTER" ] && NODES_ARG="-Ppublish.nodes=$PUBLISH_NODE_FILTER"
+                        # chiseledPublish runs publishMods for every version (each with its source
+                        # active) — or only the nodes NODES_ARG restricts it to.
                         if [ -s build/changelog.md ]; then
-                            ./gradlew chiseledPublish -Pchangelog="$(cat build/changelog.md)" --stacktrace
+                            ./gradlew chiseledPublish $NODES_ARG -Pchangelog="$(cat build/changelog.md)" --stacktrace
                         else
-                            ./gradlew chiseledPublish --stacktrace
+                            ./gradlew chiseledPublish $NODES_ARG --stacktrace
                         fi
                     '''
                 }
