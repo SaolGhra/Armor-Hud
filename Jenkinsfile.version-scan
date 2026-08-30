@@ -241,11 +241,22 @@ pipeline {
                             // pushing it. Cheap check, and it is the one that protects the live mod.
                             // ':!.jdk' excludes the Temurin the Setup stage unpacks into the
                             // workspace — it is agent scaffolding, not a repo change (it is also
-                            // .gitignore'd, so this is belt-and-braces).
-                            withEnv(["MC_RE=${mc.replace('.', '\\\\.')}"]) {
+                            // .gitignore'd, so this is belt-and-braces). ':!gradlew' excludes the
+                            // chmod two lines above: it flips gradlew's mode to executable relative to
+                            // its 100644 mode in the index, which `git status` reports as a modified
+                            // path even though not one byte of its content changed.
+                            //
+                            // mc.replace('.', '\\.') -- ONE escaped backslash, not two: this is a
+                            // single-quoted Groovy string, so Groovy's own \\->\ unescaping already
+                            // happens once here. MC_RE's value needs to be the single-backslash regex
+                            // fragment "\." (one real backslash) so grep -E sees an escaped literal
+                            // dot; doubling it here produces "\\." in MC_RE's actual value, which in
+                            // ERE means "a literal backslash, then any character" -- matching no real
+                            // path and making this check reject every legitimate scaffold output.
+                            withEnv(["MC_RE=${mc.replace('.', '\\.')}"]) {
                                 sh '''
                                     set -e
-                                    git status --porcelain -- ':!.jdk' | sed 's/^...//' > build/changed.txt
+                                    git status --porcelain -- ':!.jdk' ':!gradlew' | sed 's/^...//' > build/changed.txt
                                     echo "changed paths:"; sed 's/^/  /' build/changed.txt
                                     [ -s build/changed.txt ] || { echo "!! scaffold changed nothing"; exit 1; }
                                     BAD=$(grep -vE "^(settings\\.gradle\\.kts|versions/$MC_RE/)" build/changed.txt || true)
