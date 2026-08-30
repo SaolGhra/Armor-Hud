@@ -12,6 +12,11 @@ pluginManagement {
 
 plugins {
     id("dev.kikugie.stonecutter") version "0.6"
+    // Without this, Gradle can only use a JDK it finds already installed for a toolchain request
+    // (e.g. Forge 1.20.1's Java 17 compile target) and fails outright on an agent that lacks one —
+    // this is what broke CI build 130 after the loom 1.17.491 bump started requiring an exact-match
+    // JDK 17 toolchain for its Forge tooling. This lets Gradle download whichever JDK a node needs.
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
 stonecutter {
