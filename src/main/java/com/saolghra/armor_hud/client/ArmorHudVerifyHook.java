@@ -17,12 +17,19 @@ package com.saolghra.armor_hud.client;
 //    independent of whether any window was mapped.
 //
 // Deliberately uses line comments only — Stonecutter has to comment this whole file out for
-// release builds, and nested block comments make that encoding fragile.
+// release builds, and nested block comments make that encoding fragile. That same fragility is
+// why the two 26.x API renames below (Minecraft#setScreen -> #setScreenAndShow at 26.1,
+// Minecraft#getMainRenderTarget() removed at 26.2) are resolved with reflection instead of a
+// nested Stonecutter guard — this is a one-off verification-only call, not shipped code, so the
+// small reflection cost is a fair trade for not fighting comment-nesting here.
 //? if verify {
 /*import com.saolghra.armor_hud.client.config.ArmorHudConfigScreen;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
+import net.minecraft.client.gui.screens.Screen;
+
+import java.lang.reflect.Method;
 
 public final class ArmorHudVerifyHook {
     // Gradle's runClient forks a JVM that inherits the environment but not ad-hoc -D flags,
@@ -66,18 +73,37 @@ public final class ArmorHudVerifyHook {
             return;
         }
         if (MODE != null && !opened) {
-            ArmorHudConfigScreen screen = new ArmorHudConfigScreen(client.screen);
+            // This seam never exercises onClose() through a real user interaction, only the
+            // harness's own screenshot/teardown, so a null parent (return to gameplay on close)
+            // is fine on every version — sidesteps Minecraft#screen, which 26.2 removed entirely
+            // with no direct replacement.
+            ArmorHudConfigScreen screen = new ArmorHudConfigScreen(null);
             screen.setInteractiveMode("interactive".equals(MODE));
-            client.setScreen(screen);
+            setScreen(client, screen);
             opened = true;
         }
+    }
+
+    // 26.1 added Minecraft#setScreenAndShow alongside the older #setScreen; 26.2 removed #setScreen
+    // entirely, leaving only #setScreenAndShow. Tries the newer name first (present on every 26.x
+    // node) and falls back to the older one (present on every pre-26 node).
+    private static void setScreen(Minecraft client, Screen screen) {
+        for (String name : new String[] {"setScreenAndShow", "setScreen"}) {
+            try {
+                Method m = Minecraft.class.getMethod(name, Screen.class);
+                m.invoke(client, screen);
+                return;
+            } catch (ReflectiveOperationException ignored) {
+            }
+        }
+        System.out.println("[armor_hud verify] no setScreen/setScreenAndShow method found");
     }
 
     // Called by ArmorHudVerifyGameRendererMixin at the TAIL of GameRenderer.render — the point where
     // the whole frame, world AND the fully composited HUD, is in the main render target. Grabbing
     // from the HUD render hook instead gets world-only, because the GUI is still batched there and is
     // flushed to the target only after this. Screenshot.grab auto-names a PNG into
-    // <gameDir>/screenshots/; the 3-arg overload is identical across the whole matrix.
+    // <gameDir>/screenshots/.
     public static void captureFrame() {
         if (!SHOT || shotTaken || framesSeen < DELAY_FRAMES) {
             return;
@@ -90,11 +116,33 @@ public final class ArmorHudVerifyHook {
         System.out.println("[armor_hud verify] framebuffer screenshot into "
                 + client.gameDirectory + "/screenshots");
         try {
-            Screenshot.grab(client.gameDirectory, client.getMainRenderTarget(), message -> {});
+            grab(client);
             System.out.println("[armor_hud verify] Screenshot.grab returned");
         } catch (Throwable t) {
             System.out.println("[armor_hud verify] Screenshot.grab threw: " + t);
         }
+    }
+
+    // 26.2 removed Minecraft#getMainRenderTarget() with no direct replacement, but the same release
+    // added a simpler Screenshot.grab(Minecraft, boolean) overload that needs no render target at
+    // all. Prefers the older (File, RenderTarget, Consumer) overload — present on every pre-26.2
+    // node — and falls back to the newer one.
+    private static void grab(Minecraft client) throws ReflectiveOperationException {
+        try {
+            // target.getClass() would return the concrete RenderTarget subclass Minecraft actually
+            // hands back, which does not exact-match the (File, RenderTarget, Consumer) overload's
+            // declared parameter type -- getMethod requires an exact type match, not a subtype.
+            // getReturnType() gives the declared type instead.
+            Method getTarget = Minecraft.class.getMethod("getMainRenderTarget");
+            Object target = getTarget.invoke(client);
+            Method grab = Screenshot.class.getMethod(
+                    "grab", java.io.File.class, getTarget.getReturnType(), java.util.function.Consumer.class);
+            grab.invoke(null, client.gameDirectory, target, (java.util.function.Consumer<net.minecraft.network.chat.Component>) message -> {});
+            return;
+        } catch (ReflectiveOperationException ignored) {
+        }
+        Method grab = Screenshot.class.getMethod("grab", Minecraft.class, boolean.class);
+        grab.invoke(null, client, false);
     }
 }
 *///?}

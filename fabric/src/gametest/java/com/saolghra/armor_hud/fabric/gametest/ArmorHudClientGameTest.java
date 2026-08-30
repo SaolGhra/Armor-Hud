@@ -21,7 +21,20 @@ public class ArmorHudClientGameTest implements FabricClientGameTest {
     @Override
     public void runTest(ClientGameTestContext context) {
         try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
+            // 26.1 renamed TestSingleplayerContext#getClientWorld -> #getClientLevel (same
+            // TestClientLevelContext type, waitForChunksRender unchanged). 26.2 removed
+            // getClientLevel() entirely in favour of #getConnection() (TestServerConnection),
+            // which exposes the same waitForChunksRender(). Both confirmed against the real
+            // resolved fabric-client-gametest-api-v1 jar for each pinned version.
+            //? if >=26.2 {
+            /*singleplayer.getConnection().waitForChunksRender();
+            *///?} else {
+            //? if >=26.1 {
+            /*singleplayer.getClientLevel().waitForChunksRender();
+            *///?} else {
             singleplayer.getClientWorld().waitForChunksRender();
+            //?}
+            //?}
 
             // Baseline: no armor -> HUD hides all four (empty) slots.
             context.takeScreenshot("armor_hud-empty");

@@ -1,8 +1,14 @@
 plugins {
     id("dev.kikugie.stonecutter")
-    id("dev.architectury.loom") version "1.14-SNAPSHOT" apply false
-    id("architectury-plugin") version "3.4-SNAPSHOT" apply false
-    id("com.github.johnrengelman.shadow") version "8.1.1" apply false
+    // "dev.architectury.loom" (plain) stays declared for forge/build.gradle.kts, which is
+    // 1.20.1-only and therefore always obfuscated/remapped — it never needs the no-remap variant.
+    // Root/fabric/neoforge apply loom imperatively (see build.gradle.kts / fabric/neoforge
+    // build.gradle.kts) since 26.1+ needs loom-no-remap instead — a plugins{} block can't branch.
+    id("dev.architectury.loom") version "1.17.491" apply false
+    id("dev.architectury.loom-remap") version "1.17.491" apply false
+    id("dev.architectury.loom-no-remap") version "1.17.491" apply false
+    id("architectury-plugin") version "3.5.169" apply false
+    id("com.gradleup.shadow") version "9.6.1" apply false
     id("me.modmuss50.mod-publish-plugin") version "0.8.4" apply false
 }
 stonecutter active "1.20" /* [SC] DO NOT EDIT */

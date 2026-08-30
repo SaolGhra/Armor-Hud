@@ -1,9 +1,13 @@
 @file:Suppress("UnstableApiUsage")
 
+import net.fabricmc.loom.api.LoomGradleExtensionAPI
+import net.fabricmc.loom.task.RemapJarTask
+import net.fabricmc.loom.api.fabricapi.FabricApiExtension
+
 plugins {
-    id("dev.architectury.loom")
+    java
     id("architectury-plugin")
-    id("com.github.johnrengelman.shadow")
+    id("com.gradleup.shadow")
     id("me.modmuss50.mod-publish-plugin")
 }
 
@@ -12,6 +16,15 @@ val minecraft: String = stonecutter.current.version
 val common: Project = requireNotNull(stonecutter.node.sibling("")?.project) {
     "No common project for $project"
 }
+
+// 26.1+ is unobfuscated Minecraft — no mappings, no mod* remap configurations. See build.gradle.kts
+// (the common project) for the full rationale; both loom plugin IDs are declared (apply false) in
+// stonecutter.gradle.kts at one shared version.
+val unobfuscated: Boolean = stonecutter.eval(minecraft, ">=26.1")
+apply(plugin = if (unobfuscated) "dev.architectury.loom-no-remap" else "dev.architectury.loom-remap")
+val loomExt = extensions.getByType(LoomGradleExtensionAPI::class.java)
+val modDep = if (unobfuscated) "implementation" else "modImplementation"
+val modCompile = if (unobfuscated) "compileOnly" else "modCompileOnly"
 
 version = "${mod.version}+$minecraft"
 base {
@@ -52,24 +65,37 @@ repositories {
 }
 
 dependencies {
-    minecraft("com.mojang:minecraft:$minecraft")
-    mappings(loom.officialMojangMappings())
-    modImplementation("net.fabricmc:fabric-loader:${common.mod.dep("fabric_loader")}")
-    modImplementation("net.fabricmc.fabric-api:fabric-api:${common.mod.dep("fabric_api")}")
+    "minecraft"("com.mojang:minecraft:$minecraft")
+    if (!unobfuscated) {
+        add("mappings", loomExt.officialMojangMappings())
+    }
+    modDep("net.fabricmc:fabric-loader:${common.mod.dep("fabric_loader")}")
+    modDep("net.fabricmc.fabric-api:fabric-api:${common.mod.dep("fabric_api")}")
     // ModMenu is an OPTIONAL runtime dep (users install it themselves) and we only implement its two
     // API interfaces, so compile against it without dragging in its transitive deps: across the eight
     // ModMenu majors this matrix spans, those pull mods from mavens we otherwise don't need (e.g. 9.x
     // wants eu.pb4:placeholder-api). isTransitive=false keeps the version matrix resolvable.
-    modCompileOnly("maven.modrinth:modmenu:${common.mod.dep("modmenu")}") { isTransitive = false }
+    modCompile("maven.modrinth:modmenu:${common.mod.dep("modmenu")}") { isTransitive = false }
 
-    commonBundle(project(common.path, "namedElements")) { isTransitive = false }
+    // "namedElements" is Fabric Loom's remapped/named-jar configuration — a remap-time concept that
+    // simply does not exist on an unobfuscated (loom-no-remap) common project (confirmed empirically:
+    // `outgoingVariants` on an unobfuscated node lists only the plain Java plugin variants). Since
+    // there is nothing to remap there, the common project's own compiled classes are ALREADY in real
+    // Mojang names, so the standard "runtimeElements" variant serves the same purpose.
+    // "transformProductionFabric" is architectury-plugin's own configuration (created per enabled
+    // platform regardless of remap mode), so it is unaffected either way.
+    commonBundle(project(common.path, if (unobfuscated) "runtimeElements" else "namedElements")) { isTransitive = false }
     shadowBundle(project(common.path, "transformProductionFabric")) { isTransitive = false }
 }
 
-loom {
-    decompilers {
-        get("vineflower").apply {
-            options.put("mark-corresponding-synthetics", "1")
+configure<LoomGradleExtensionAPI> {
+    // Decompiling is a remap-time concept (turning obfuscated names into readable ones); 26.1+ is
+    // already named, so there is nothing for it to do.
+    if (!unobfuscated) {
+        decompilers {
+            get("vineflower").apply {
+                options.put("mark-corresponding-synthetics", "1")
+            }
         }
     }
 
@@ -82,39 +108,57 @@ loom {
 
 java {
     withSourcesJar()
-    val java = if (stonecutter.eval(minecraft, ">=1.20.5"))
-        JavaVersion.VERSION_21 else JavaVersion.VERSION_17
+    val javaVersion = when {
+        stonecutter.eval(minecraft, ">=26") -> 25
+        stonecutter.eval(minecraft, ">=1.20.5") -> 21
+        else -> 17
+    }
+    val java = JavaVersion.toVersion(javaVersion)
     targetCompatibility = java
     sourceCompatibility = java
+    // See build.gradle.kts (the common project) — required so compilation does not depend on which
+    // JDK happens to be running Gradle itself (the verify harness runs Gradle on a JDK 21, which
+    // cannot target release 25 at all).
+    toolchain.languageVersion.set(JavaLanguageVersion.of(javaVersion))
 }
 
 // Client GameTest screenshot harness — only versions whose Fabric API ships the client-gametest API.
 //? if >=1.21.5 {
-fabricApi {
-    configureTests {
-        createSourceSet = true
-        modId = "${mod.id}_test"
-        enableClientGameTests = true
-        eula = true
-    }
+extensions.getByType(FabricApiExtension::class.java).configureTests {
+    createSourceSet = true
+    modId = "${mod.id}_test"
+    enableClientGameTests = true
+    eula = true
 }
 //?}
 
 tasks.shadowJar {
     configurations = listOf(shadowBundle)
-    archiveClassifier = "dev-shadow"
+    // Obfuscated nodes remap this jar afterwards (remapJar consumes it and produces the final
+    // artifact), so it keeps a classifier. Unobfuscated nodes have no remap step — the names are
+    // already real — so this IS the final artifact and must carry no classifier.
+    archiveClassifier = if (unobfuscated) null else "dev-shadow"
 }
 
-tasks.remapJar {
-    injectAccessWidener = true
-    input = tasks.shadowJar.get().archiveFile
-    archiveClassifier = null
-    dependsOn(tasks.shadowJar)
+if (!unobfuscated) {
+    tasks.named<RemapJarTask>("remapJar") {
+        injectAccessWidener = true
+        input = tasks.shadowJar.get().archiveFile
+        archiveClassifier = null
+        dependsOn(tasks.shadowJar)
+    }
 }
 
 tasks.jar {
     archiveClassifier = "dev"
 }
+
+// The task that produces the shippable jar. Unobfuscated nodes have nothing to remap, so loom
+// registers no remapJar there and shadowJar (already carrying the real Mojang names) is final.
+// org.gradle.jvm.tasks.Jar, not the bundling Jar the Kotlin DSL resolves by default: loom's
+// RemapJarTask (and Shadow's ShadowJar) both extend the former, which is the parent of the latter.
+val productionJar = tasks.named<org.gradle.jvm.tasks.Jar>(if (unobfuscated) "shadowJar" else "remapJar")
+val productionSourcesJar = tasks.named(if (unobfuscated) "sourcesJar" else "remapSourcesJar")
 
 // The verification-only screenshot mixin is registered only in verify builds, via the same
 // armorhud.verify flag that compiles the mixin CLASS in. Emits the whole "mixins" key (with trailing
@@ -140,18 +184,21 @@ tasks.build {
 tasks.register<Copy>("buildAndCollect") {
     group = "versioned"
     description = "Must run through 'chiseledBuild'"
-    from(tasks.remapJar.get().archiveFile, tasks.remapSourcesJar.get().archiveFile)
+    from(productionJar.get().archiveFile, productionSourcesJar.get().outputs.files)
     // All loaders/versions collect into ONE folder. Jar names already carry loader + MC
     // (armor_hud-<loader>-<ver>+<mc>.jar), so nothing collides.
     into(rootProject.layout.buildDirectory.dir("libs/${mod.version}"))
-    dependsOn("build")
+    // Loom hooks remapJar into 'build' automatically on obfuscated nodes; unobfuscated nodes have no
+    // remapJar, and shadowJar (the production jar there) is not otherwise wired to 'build', so it is
+    // named explicitly rather than assumed.
+    dependsOn("build", productionJar, productionSourcesJar)
 }
 
 // Modrinth publishing. Runs as a dry-run unless MODRINTH_TOKEN is set (so CI can rehearse safely).
 publishMods {
     val hasToken = providers.environmentVariable("MODRINTH_TOKEN").isPresent
     dryRun = !hasToken
-    file = tasks.remapJar.get().archiveFile
+    file = productionJar.flatMap { it.archiveFile }
     type = STABLE
     displayName = "Armor HUD ${mod.version} - ${common.mod.prop("mc_title")} ($loader)"
     version = "${mod.version}+$minecraft-$loader"

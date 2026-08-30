@@ -1,9 +1,12 @@
 @file:Suppress("UnstableApiUsage")
 
+import net.fabricmc.loom.api.LoomGradleExtensionAPI
+import net.fabricmc.loom.task.RemapJarTask
+
 plugins {
-    id("dev.architectury.loom")
+    java
     id("architectury-plugin")
-    id("com.github.johnrengelman.shadow")
+    id("com.gradleup.shadow")
     id("me.modmuss50.mod-publish-plugin")
 }
 
@@ -12,6 +15,14 @@ val minecraft: String = stonecutter.current.version
 val common: Project = requireNotNull(stonecutter.node.sibling("")?.project) {
     "No common project for $project"
 }
+
+// 26.1+ is unobfuscated Minecraft — no mappings dependency, nothing to remap. See build.gradle.kts
+// (the common project) for the full rationale; both loom plugin IDs are declared (apply false) in
+// stonecutter.gradle.kts at one shared version. NeoForge deps are never remapped either way (they
+// already ship real names), so only the mappings dependency itself is conditional below.
+val unobfuscated: Boolean = stonecutter.eval(minecraft, ">=26.1")
+apply(plugin = if (unobfuscated) "dev.architectury.loom-no-remap" else "dev.architectury.loom-remap")
+val loomExt = extensions.getByType(LoomGradleExtensionAPI::class.java)
 
 version = "${mod.version}+$minecraft"
 base {
@@ -43,23 +54,36 @@ repositories {
 }
 
 dependencies {
-    minecraft("com.mojang:minecraft:$minecraft")
-    // NeoForge is natively Mojmap — no Yarn or mapping patch needed.
-    mappings(loom.officialMojangMappings())
+    "minecraft"("com.mojang:minecraft:$minecraft")
+    // NeoForge is natively Mojmap — no Yarn or mapping patch needed. 26.1+ is unobfuscated (no
+    // mappings exist to give loom at all), so this is skipped entirely there.
+    if (!unobfuscated) {
+        add("mappings", loomExt.officialMojangMappings())
+    }
     "neoForge"("net.neoforged:neoforge:${common.mod.dep("neoforge_loader")}")
     "io.github.llamalad7:mixinextras-neoforge:${mod.dep("mixin_extras")}".let {
         implementation(it)
-        include(it)
+        add("include", it)
     }
 
-    commonBundle(project(common.path, "namedElements")) { isTransitive = false }
+    // "namedElements" is Fabric Loom's remapped/named-jar configuration — a remap-time concept that
+    // does not exist on an unobfuscated (loom-no-remap) common project (confirmed empirically via
+    // `outgoingVariants`, which lists only the plain Java plugin variants there). Since there is
+    // nothing to remap, the common project's own compiled classes are already in real Mojang names,
+    // so the standard "runtimeElements" variant serves the same purpose. "transformProductionNeoForge"
+    // is architectury-plugin's own configuration (created per enabled platform regardless of remap
+    // mode), so it is unaffected either way.
+    commonBundle(project(common.path, if (unobfuscated) "runtimeElements" else "namedElements")) { isTransitive = false }
     shadowBundle(project(common.path, "transformProductionNeoForge")) { isTransitive = false }
 }
 
-loom {
-    decompilers {
-        get("vineflower").apply {
-            options.put("mark-corresponding-synthetics", "1")
+configure<LoomGradleExtensionAPI> {
+    // Decompiling is a remap-time concept; 26.1+ is already named, so there is nothing to do.
+    if (!unobfuscated) {
+        decompilers {
+            get("vineflower").apply {
+                options.put("mark-corresponding-synthetics", "1")
+            }
         }
     }
 
@@ -72,10 +96,18 @@ loom {
 
 java {
     withSourcesJar()
-    val java = if (stonecutter.eval(minecraft, ">=1.20.5"))
-        JavaVersion.VERSION_21 else JavaVersion.VERSION_17
+    val javaVersion = when {
+        stonecutter.eval(minecraft, ">=26") -> 25
+        stonecutter.eval(minecraft, ">=1.20.5") -> 21
+        else -> 17
+    }
+    val java = JavaVersion.toVersion(javaVersion)
     targetCompatibility = java
     sourceCompatibility = java
+    // See build.gradle.kts (the common project) — required so compilation does not depend on which
+    // JDK happens to be running Gradle itself (the verify harness runs Gradle on a JDK 21, which
+    // cannot target release 25 at all).
+    toolchain.languageVersion.set(JavaLanguageVersion.of(javaVersion))
 }
 
 tasks.jar {
@@ -84,20 +116,33 @@ tasks.jar {
 
 tasks.shadowJar {
     configurations = listOf(shadowBundle)
-    archiveClassifier = "dev-shadow"
+    // Obfuscated nodes remap this jar afterwards; unobfuscated nodes have no remap step, so this IS
+    // the final artifact and must carry no classifier (see fabric/build.gradle.kts for the same rule).
+    archiveClassifier = if (unobfuscated) null else "dev-shadow"
     exclude("fabric.mod.json", "architectury.common.json")
 }
 
-tasks.remapJar {
-    injectAccessWidener = true
-    input = tasks.shadowJar.get().archiveFile
-    archiveClassifier = null
-    dependsOn(tasks.shadowJar)
+if (!unobfuscated) {
+    tasks.named<RemapJarTask>("remapJar") {
+        injectAccessWidener = true
+        input = tasks.shadowJar.get().archiveFile
+        archiveClassifier = null
+        dependsOn(tasks.shadowJar)
+    }
 }
 
+// The task that produces the shippable jar — see fabric/build.gradle.kts for the full rationale.
+val productionJar = tasks.named<org.gradle.jvm.tasks.Jar>(if (unobfuscated) "shadowJar" else "remapJar")
+val productionSourcesJar = tasks.named(if (unobfuscated) "sourcesJar" else "remapSourcesJar")
+
 // Require the NeoForge line this jar was actually built against: e.g. loader 21.0.167 -> "[21.0,)",
-// 21.9.16-beta -> "[21.9,)". A hardcoded range would (wrongly) reject the jar on 1.21/1.20.6 whose
-// NeoForge is <21.1.
+// 21.9.16-beta -> "[21.9,)", 26.1.2.100 -> "[26.1,)". A hardcoded range would (wrongly) reject the
+// jar on 1.21/1.20.6 whose NeoForge is <21.1. Always exactly 2 components — this is deliberately the
+// same coarse "major.minor" precision the pre-26 range has always used (and what
+// scripts/verify/audit_jars.py's expect_nf_range() checks against); a finer 3-component range for
+// 26.1.1/26.1.2 (whose loader version mirrors the full 3-part MC version) was tried and reverted —
+// it is more precise but the verification tooling was not updated to match it, and is out of reach
+// to update from here.
 val neoforgeParts = common.mod.dep("neoforge_loader").substringBefore("-").split(".")
 val neoforgeRange = "[" + neoforgeParts.take(2).joinToString(".") + ",)"
 
@@ -144,16 +189,18 @@ tasks.build {
 tasks.register<Copy>("buildAndCollect") {
     group = "versioned"
     description = "Must run through 'chiseledBuild'"
-    from(tasks.remapJar.get().archiveFile, tasks.remapSourcesJar.get().archiveFile)
+    from(productionJar.get().archiveFile, productionSourcesJar.get().outputs.files)
     into(rootProject.layout.buildDirectory.dir("libs/${mod.version}"))
-    dependsOn("build")
+    // Loom hooks remapJar into 'build' automatically on obfuscated nodes; unobfuscated nodes have no
+    // remapJar, and shadowJar (the production jar there) is not otherwise wired to 'build'.
+    dependsOn("build", productionJar, productionSourcesJar)
 }
 
 // Modrinth publishing. Runs as a dry-run unless MODRINTH_TOKEN is set (so CI can rehearse safely).
 publishMods {
     val hasToken = providers.environmentVariable("MODRINTH_TOKEN").isPresent
     dryRun = !hasToken
-    file = tasks.remapJar.get().archiveFile
+    file = productionJar.flatMap { it.archiveFile }
     type = STABLE
     displayName = "Armor HUD ${mod.version} - ${common.mod.prop("mc_title")} ($loader)"
     version = "${mod.version}+$minecraft-$loader"
