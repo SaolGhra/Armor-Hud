@@ -3,7 +3,15 @@ package com.saolghra.armor_hud.client.config;
 import com.saolghra.armor_hud.ArmorHudMath;
 import com.saolghra.armor_hud.config.ArmorHudConfig;
 
+// 26.1 renamed GuiGraphics -> GuiGraphicsExtractor (same package), and Screen's render(...) override
+// was renamed extractRenderState(...) to match — see ArmorHudOverlay for the full rationale. The
+// method surface used here (fill/pose) carries over unchanged; drawCenteredString/drawString/
+// renderItem were renamed to centeredText/text/item.
+//? if >=26.1 {
+/*import net.minecraft.client.gui.GuiGraphicsExtractor;
+*///?} else {
 import net.minecraft.client.gui.GuiGraphics;
+//?}
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 //? if >=1.21.9
@@ -117,8 +125,16 @@ public class ArmorHudConfigScreen extends Screen {
                 : "armor_hud.config.interactive.enter");
     }
 
+    // 26.1 renamed Screen#render(GuiGraphics,int,int,float) -> #extractRenderState(GuiGraphicsExtractor,
+    // int,int,float) as part of the HUD/Screen "extract render state, then submit" split (see
+    // ArmorHudOverlay). Without this guard the override below simply stops being called at 26.1+ —
+    // Screen no longer declares the old method at all — and the config screen renders blank.
     @Override
+    //? if >=26.1 {
+    /*public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float delta) {
+    *///?} else {
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
+    //?}
         // Dim the background ourselves (renderBackground's signature moved across versions).
         graphics.fill(0, 0, this.width, this.height, interactiveMode ? 0x20000000 : 0xC0101010);
 
@@ -126,29 +142,50 @@ public class ArmorHudConfigScreen extends Screen {
         // screen background from inside super.render, which paints over anything written before it:
         // the header text was still there but dimmed to ~40% brightness, legible enough in a
         // thumbnail to look intentional.
+        //? if >=26.1 {
+        /*super.extractRenderState(graphics, mouseX, mouseY, delta);
+        *///?} else {
         super.render(graphics, mouseX, mouseY, delta);
+        //?}
 
         // Colours here are ARGB: 0xFFFFFF would be alpha 0x00, i.e. invisible. Older versions'
         // font renderer silently promoted a zero alpha to opaque, so the title looked fine on
         // 1.20.x while being completely invisible from the newer render pipeline onwards.
+        //? if >=26.1 {
+        /*graphics.centeredText(this.font, this.title, this.width / 2, 8, 0xFFFFFFFF);
+        graphics.centeredText(this.font,
+                Component.translatable("armor_hud.config.position", config.getXOffset(), config.getYOffset()),
+                this.width / 2, 20, 0xFFB0B0B0);
+        *///?} else {
         graphics.drawCenteredString(this.font, this.title, this.width / 2, 8, 0xFFFFFFFF);
         graphics.drawCenteredString(this.font,
                 Component.translatable("armor_hud.config.position", config.getXOffset(), config.getYOffset()),
                 this.width / 2, 20, 0xFFB0B0B0);
+        //?}
         if (interactiveMode) {
             Component hint = Component.translatable(dragging
                     ? "armor_hud.config.interactive.dragging"
                     : "armor_hud.config.interactive.hint");
+            //? if >=26.1 {
+            /*graphics.centeredText(this.font, hint, this.width / 2, 30, 0xFFFFFF00);
+            *///?} else {
             graphics.drawCenteredString(this.font, hint, this.width / 2, 30, 0xFFFFFF00);
+            //?}
         }
 
         renderPreviewHud(graphics);
     }
 
+    // 26.1 renamed Minecraft#setScreen -> #setScreenAndShow — confirmed against the real resolved
+    // 26.2 client jar, since Minecraft no longer declares a setScreen(Screen) method at all.
     @Override
     public void onClose() {
         if (this.minecraft != null) {
+            //? if >=26.1 {
+            /*this.minecraft.setScreenAndShow(parent);
+            *///?} else {
             this.minecraft.setScreen(parent);
+            //?}
         }
     }
 
@@ -239,7 +276,11 @@ public class ArmorHudConfigScreen extends Screen {
     }
 
     /** Draws a live preview of the HUD using the same layout maths as the real overlay. */
+    //? if >=26.1 {
+    /*private void renderPreviewHud(GuiGraphicsExtractor graphics) {
+    *///?} else {
     private void renderPreviewHud(GuiGraphics graphics) {
+    //?}
         if (!interactiveMode) {
             return;
         }
@@ -257,7 +298,11 @@ public class ArmorHudConfigScreen extends Screen {
             int drawY = ArmorHudMath.slotY(vertical, originY, box, slot, stride);
 
             graphics.fill(drawX, drawY, drawX + box, drawY + box, 0x80000000);
+            //? if >=26.1 {
+            /*graphics.item(item, drawX + (box - ICON_SIZE) / 2, drawY + (box - ICON_SIZE) / 2);
+            *///?} else {
             graphics.renderItem(item, drawX + (box - ICON_SIZE) / 2, drawY + (box - ICON_SIZE) / 2);
+            //?}
         }
 
         // Pass 2: durability decorations, lifted above the item models exactly as the real overlay
@@ -281,7 +326,11 @@ public class ArmorHudConfigScreen extends Screen {
             if (config.isShowDurabilityPoints()) {
                 String display = String.valueOf(maxDamage - damage);
                 int textX = drawX + box - 2 - this.font.width(display);
+                //? if >=26.1 {
+                /*graphics.text(this.font, Component.literal(display), textX, drawY + 2, 0x88FFFFFF, true);
+                *///?} else {
                 graphics.drawString(this.font, Component.literal(display), textX, drawY + 2, 0x88FFFFFF, true);
+                //?}
             } else {
                 int barWidth = 13;
                 int barX = drawX + (box / 2) - (barWidth / 2);
@@ -296,7 +345,11 @@ public class ArmorHudConfigScreen extends Screen {
 
             if (config.isShowExclamationMarks()
                     && ArmorHudMath.isLowDurability(maxDamage, damage, config.getDurabilityWarningThreshold())) {
+                //? if >=26.1 {
+                /*graphics.text(this.font, Component.literal("!"), drawX - 1, drawY - 2, 0xFFFFFF00, true);
+                *///?} else {
                 graphics.drawString(this.font, Component.literal("!"), drawX - 1, drawY - 2, 0xFFFFFF00, true);
+                //?}
             }
         }
         //? if <1.21.6 {

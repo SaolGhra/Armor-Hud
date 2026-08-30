@@ -2,10 +2,14 @@ package com.saolghra.armor_hud.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 /**
  * Loader-agnostic configuration for Armor HUD, persisted as {@code armor_hud.json}.
@@ -68,7 +72,7 @@ public class ArmorHudConfig {
         Path path = configPath;
         if (path != null && Files.exists(path)) {
             try {
-                ArmorHudConfig loaded = GSON.fromJson(Files.readString(path), ArmorHudConfig.class);
+                ArmorHudConfig loaded = mergeWithDefaults(Files.readString(path));
                 if (loaded != null) {
                     return loaded;
                 }
@@ -77,6 +81,29 @@ public class ArmorHudConfig {
             }
         }
         return createDefaultConfig();
+    }
+
+    /**
+     * Parses {@code json} onto a freshly defaulted config instead of handing GSON's raw result back
+     * directly. {@code Gson.fromJson} only sets the fields actually present in the source text — a
+     * field missing from the file (an older schema written before that field existed, a partial or
+     * corrupted write, a manually edited file) would otherwise silently end up at Java's primitive
+     * zero-value ({@code false}/{@code 0}) instead of this mod's own intended default. Merging the
+     * loaded JSON onto a defaults-populated {@link JsonObject} keeps every field the file doesn't
+     * mention at its proper default; only keys actually present in {@code json} override it.
+     */
+    private static ArmorHudConfig mergeWithDefaults(String json) {
+        JsonElement parsed = JsonParser.parseString(json);
+        if (parsed == null || !parsed.isJsonObject()) {
+            return null;
+        }
+        ArmorHudConfig defaults = new ArmorHudConfig();
+        defaults.applyDefaults();
+        JsonObject merged = GSON.toJsonTree(defaults).getAsJsonObject();
+        for (Map.Entry<String, JsonElement> entry : parsed.getAsJsonObject().entrySet()) {
+            merged.add(entry.getKey(), entry.getValue());
+        }
+        return GSON.fromJson(merged, ArmorHudConfig.class);
     }
 
     private static ArmorHudConfig createDefaultConfig() {

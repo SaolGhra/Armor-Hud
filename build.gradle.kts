@@ -1,9 +1,23 @@
+import net.fabricmc.loom.api.LoomGradleExtensionAPI
+
 plugins {
-    id("dev.architectury.loom")
+    java
     id("architectury-plugin")
 }
 
 val minecraft = stonecutter.current.version
+
+// 26.1+ ships unobfuscated Minecraft: no Mojang mappings, no Fabric intermediary, nothing to remap.
+// That needs a different loom plugin ID, not just a different mappings dependency, so loom is
+// applied imperatively here rather than via the plugins{} block (which can't branch). Both IDs are
+// declared (apply false) at one shared version in stonecutter.gradle.kts.
+val unobfuscated: Boolean = stonecutter.eval(minecraft, ">=26.1")
+apply(plugin = if (unobfuscated) "dev.architectury.loom-no-remap" else "dev.architectury.loom-remap")
+val loomExt = extensions.getByType(LoomGradleExtensionAPI::class.java)
+
+// loom-no-remap creates no mod* dependency configurations — with nothing to remap, a mod is just a
+// normal dependency.
+val modDep = if (unobfuscated) "implementation" else "modImplementation"
 
 // `verify` gates the ArmorHudVerifyHook test seam (the release harness uses it to open the config screen
 // without input automation). Release builds compile it out entirely — call site AND class — so the
@@ -28,11 +42,14 @@ repositories {
 }
 
 dependencies {
-    minecraft("com.mojang:minecraft:$minecraft")
-    // Official Mojang mappings everywhere — Mojang ships these for every release AND snapshot,
-    // which eliminates the Yarn-lag / mappings=none "wrong class names" problem.
-    mappings(loom.officialMojangMappings())
-    modImplementation("net.fabricmc:fabric-loader:${mod.dep("fabric_loader")}")
+    "minecraft"("com.mojang:minecraft:$minecraft")
+    // Official Mojang mappings for every obfuscated version — Mojang ships these for every release
+    // AND snapshot, which eliminates the Yarn-lag / mappings=none "wrong class names" problem. 26.1+
+    // is unobfuscated (real names already), so there is nothing to give loom to remap against.
+    if (!unobfuscated) {
+        add("mappings", loomExt.officialMojangMappings())
+    }
+    modDep("net.fabricmc:fabric-loader:${mod.dep("fabric_loader")}")
 
     "io.github.llamalad7:mixinextras-common:${mod.dep("mixin_extras")}".let {
         annotationProcessor(it)
@@ -48,22 +65,35 @@ tasks.test {
     useJUnitPlatform()
 }
 
-loom {
-    accessWidenerPath = rootProject.file("src/main/resources/armor_hud.accesswidener")
-
-    decompilers {
-        get("vineflower").apply {
-            options.put("mark-corresponding-synthetics", "1")
+// The access widener is currently empty (no widened members) and access widening is itself a
+// remap-time concept, so it's only meaningful — and only registered — on obfuscated nodes.
+if (!unobfuscated) {
+    configure<LoomGradleExtensionAPI> {
+        accessWidenerPath = rootProject.file("src/main/resources/armor_hud.accesswidener")
+        decompilers {
+            get("vineflower").apply {
+                options.put("mark-corresponding-synthetics", "1")
+            }
         }
     }
 }
 
 java {
     withSourcesJar()
-    val java = if (stonecutter.eval(minecraft, ">=1.20.5"))
-        JavaVersion.VERSION_21 else JavaVersion.VERSION_17
+    val javaVersion = when {
+        stonecutter.eval(minecraft, ">=26") -> 25
+        stonecutter.eval(minecraft, ">=1.20.5") -> 21
+        else -> 17
+    }
+    val java = JavaVersion.toVersion(javaVersion)
     targetCompatibility = java
     sourceCompatibility = java
+    // Without this, javac's --release flag comes from whatever JDK is running the Gradle daemon
+    // itself — fine for the 26.x nodes when the daemon runs on a new-enough JDK, but the verify
+    // harness (scripts/verify/*.sh) defaults JAVA_HOME to a JDK 21, which does not know release 25
+    // at all ("invalid source release: 25"). An explicit toolchain lets Gradle provision/select the
+    // right JDK for compilation regardless of which JDK is running Gradle itself.
+    toolchain.languageVersion.set(JavaLanguageVersion.of(javaVersion))
 }
 
 tasks.build {

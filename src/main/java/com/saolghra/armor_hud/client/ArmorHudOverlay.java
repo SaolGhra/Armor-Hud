@@ -4,7 +4,14 @@ import com.saolghra.armor_hud.ArmorHudMath;
 import com.saolghra.armor_hud.config.ArmorHudConfig;
 
 import net.minecraft.client.Minecraft;
+// 26.1 renamed GuiGraphics -> GuiGraphicsExtractor (same package) as part of splitting HUD/Screen
+// rendering into an "extract render state, then submit" pipeline. The method surface we use
+// (fill/blit/pose) carries over unchanged; only renderItem->item and drawString->text were renamed.
+//? if >=26.1 {
+/*import net.minecraft.client.gui.GuiGraphicsExtractor;
+*///?} else {
 import net.minecraft.client.gui.GuiGraphics;
+//?}
 import net.minecraft.network.chat.Component;
 // 1.21.11 renamed ResourceLocation -> Identifier (same package) as part of Mojang's 26.x
 // unobfuscation prep. Only the name changed; `parse` still exists.
@@ -86,7 +93,11 @@ public class ArmorHudOverlay {
     private static final int SPRITE_DRAW_HEIGHT = 24;
     //?}
 
+    //? if >=26.1 {
+    /*public void render(GuiGraphicsExtractor graphics) {
+    *///?} else {
     public void render(GuiGraphics graphics) {
+    //?}
         Minecraft client = Minecraft.getInstance();
 
         //? if verify {
@@ -121,7 +132,12 @@ public class ArmorHudOverlay {
             int drawY = ArmorHudMath.slotY(vertical, yOffset, boxSize, slot, slotStride);
 
             drawSlotBackground(graphics, drawX, drawY, boxSize, boxSize);
+            // 26.1 renamed GuiGraphics#renderItem -> GuiGraphicsExtractor#item.
+            //? if >=26.1 {
+            /*graphics.item(armorItem, drawX + (boxSize - 16) / 2, drawY + (boxSize - 16) / 2);
+            *///?} else {
             graphics.renderItem(armorItem, drawX + (boxSize - 16) / 2, drawY + (boxSize - 16) / 2);
+            //?}
         }
 
         // Pass 2: durability (bar or numeric) + low-durability warning.
@@ -157,7 +173,11 @@ public class ArmorHudOverlay {
         //?}
     }
 
+    //? if >=26.1 {
+    /*private void drawDurabilityPoints(GuiGraphicsExtractor graphics, int boxX, int boxY, int boxSize, ItemStack item) {
+    *///?} else {
     private void drawDurabilityPoints(GuiGraphics graphics, int boxX, int boxY, int boxSize, ItemStack item) {
+    //?}
         int maxDamage = item.getMaxDamage();
         if (maxDamage <= 0) return;
 
@@ -166,7 +186,12 @@ public class ArmorHudOverlay {
         int textWidth = client.font.width(display);
         int textX = boxX + boxSize - 2 - textWidth;
         int textY = boxY + 2;
+        // 26.1 renamed GuiGraphics#drawString -> GuiGraphicsExtractor#text (same parameters).
+        //? if >=26.1 {
+        /*graphics.text(client.font, Component.literal(display), textX, textY, 0x88FFFFFF, true);
+        *///?} else {
         graphics.drawString(client.font, Component.literal(display), textX, textY, 0x88FFFFFF, true);
+        //?}
     }
 
     private boolean isDurabilityLow(ItemStack item) {
@@ -174,7 +199,11 @@ public class ArmorHudOverlay {
                 config.getDurabilityWarningThreshold());
     }
 
+    //? if >=26.1 {
+    /*private void drawExclamationMark(GuiGraphicsExtractor graphics, int boxX, int boxY) {
+    *///?} else {
     private void drawExclamationMark(GuiGraphics graphics, int boxX, int boxY) {
+    //?}
         float bobbingOffset = (float) Math.sin(System.currentTimeMillis() / 200.0) * 2;
         int iconSize = 11;
         int drawX = boxX - 1;
@@ -182,7 +211,11 @@ public class ArmorHudOverlay {
         blitTexture(graphics, EXCLAMATION_MARKS_TEXTURE, drawX, drawY, iconSize, iconSize, iconSize, iconSize);
     }
 
+    //? if >=26.1 {
+    /*private void drawSlotBackground(GuiGraphicsExtractor graphics, int x, int y, int width, int height) {
+    *///?} else {
     private void drawSlotBackground(GuiGraphics graphics, int x, int y, int width, int height) {
+    //?}
         int spriteX = x + (width - SPRITE_DRAW_WIDTH) / 2;
         int spriteY = y + (height - SPRITE_DRAW_HEIGHT) / 2;
         blitTexture(graphics, SLOT_BACKGROUND, spriteX, spriteY,
@@ -196,8 +229,13 @@ public class ArmorHudOverlay {
      *   <li>{@code 1.21.2–1.21.5} — a {@code Function<ResourceLocation, RenderType>}.</li>
      *   <li>{@code >=1.21.6} — a {@code RenderPipeline} ({@code RenderPipelines.GUI_TEXTURED}).</li>
      * </ul>
+     * The receiver type changed once more at 26.1 ({@code GuiGraphics} -&gt; {@code GuiGraphicsExtractor}),
+     * independently of the id-type ({@code ResourceLocation}/{@code Identifier}) boundary at 1.21.11.
      */
-    //? if >=1.21.11 {
+    //? if >=26.1 {
+    /*private void blitTexture(GuiGraphicsExtractor graphics, Identifier texture,
+                             int x, int y, int width, int height, int texWidth, int texHeight) {
+    *///?} elif >=1.21.11 {
     /*private void blitTexture(GuiGraphics graphics, Identifier texture,
                              int x, int y, int width, int height, int texWidth, int texHeight) {
     *///?} else {
@@ -213,7 +251,11 @@ public class ArmorHudOverlay {
         //?}
     }
 
+    //? if >=26.1 {
+    /*private void drawDurabilityBar(GuiGraphicsExtractor graphics, int x, int y, int width, ItemStack item) {
+    *///?} else {
     private void drawDurabilityBar(GuiGraphics graphics, int x, int y, int width, ItemStack item) {
+    //?}
         int maxDamage = item.getMaxDamage();
         int damage = item.getDamageValue();
         if (maxDamage <= 0 || damage <= 0) return;
@@ -232,7 +274,42 @@ public class ArmorHudOverlay {
         }
     }
 
+    // 26.2 removed Options.hideGui with no single direct replacement (it moved into a new Hud
+    // class, reached a different way at 26.2 than 26.1/26.1.1/26.1.2 still expose it). Rather than
+    // pin down and guard every sub-version boundary precisely, this matches Armor HUD's own
+    // previously-shipped 26.2 Fabric build (from before this monorepo), which reads it via
+    // defensive reflection over a few candidate field/method names on Options — this works
+    // uniformly across the whole 26.x range with no version split, and degrades gracefully to
+    // "not hidden" instead of an uncaught exception if no candidate name resolves.
     private boolean isHudHidden(Minecraft client) {
+        //? if >=26.1 {
+        /*if (client == null || client.options == null) {
+            return true;
+        }
+        Object options = client.options;
+        for (String fieldName : new String[] {"hideGui", "hideHud"}) {
+            try {
+                java.lang.reflect.Field field = options.getClass().getField(fieldName);
+                Object value = field.get(options);
+                if (value instanceof Boolean) {
+                    return (Boolean) value;
+                }
+            } catch (ReflectiveOperationException ignored) {
+            }
+        }
+        for (String methodName : new String[] {"hideGui", "hideHud", "isHudHidden"}) {
+            try {
+                java.lang.reflect.Method method = options.getClass().getMethod(methodName);
+                Object value = method.invoke(options);
+                if (value instanceof Boolean) {
+                    return (Boolean) value;
+                }
+            } catch (ReflectiveOperationException ignored) {
+            }
+        }
+        return false;
+        *///?} else {
         return client == null || client.options == null || client.options.hideGui;
+        //?}
     }
 }
