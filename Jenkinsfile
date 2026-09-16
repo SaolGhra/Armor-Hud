@@ -258,13 +258,19 @@ pipeline {
                         set -e
                         export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
                         export PATH="$JAVA_HOME/bin:$PATH"
-                        NODES_ARG=""
-                        [ -n "$PUBLISH_NODE_FILTER" ] && NODES_ARG="-Pbuild.nodes=$PUBLISH_NODE_FILTER"
                         # chiseledBuild iterates the whole version x loader matrix from settings.gradle.kts,
                         # generating each version's source (a direct :loader:version:build would be empty)
                         # -- or just PUBLISH_NODE_FILTER's nodes when PUBLISH_NODES restricts it (default:
                         # latest only, so a routine push does not pay for the whole matrix every time).
-                        ./gradlew chiseledBuild $NODES_ARG -x runGameTest -x runClientGameTest --stacktrace
+                        # Node entries are "<loader> <mc>" pairs (contain spaces), so the -Pbuild.nodes=
+                        # value MUST be passed as one quoted argument -- an earlier version left it
+                        # unquoted, so the shell word-split it into separate gradlew args and Gradle tried
+                        # to run the second half of a node pair (e.g. "26.3;neoforge") as a task name.
+                        if [ -n "$PUBLISH_NODE_FILTER" ]; then
+                            ./gradlew chiseledBuild -Pbuild.nodes="$PUBLISH_NODE_FILTER" -x runGameTest -x runClientGameTest --stacktrace
+                        else
+                            ./gradlew chiseledBuild -x runGameTest -x runClientGameTest --stacktrace
+                        fi
                     '''
                 }
                 script {
@@ -798,14 +804,22 @@ PY
                         set -e
                         export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
                         export PATH="$JAVA_HOME/bin:$PATH"
-                        NODES_ARG=""
-                        [ -n "$PUBLISH_NODE_FILTER" ] && NODES_ARG="-Ppublish.nodes=$PUBLISH_NODE_FILTER"
                         # chiseledPublish runs publishMods for every version (each with its source
-                        # active) — or only the nodes NODES_ARG restricts it to.
-                        if [ -s build/changelog.md ]; then
-                            ./gradlew chiseledPublish $NODES_ARG -Pchangelog="$(cat build/changelog.md)" --stacktrace
+                        # active) — or only PUBLISH_NODE_FILTER's nodes. Same quoting requirement as
+                        # Build matrix's chiseledBuild call: node entries contain spaces, so the
+                        # -Ppublish.nodes= value must be one quoted argument, not word-split by the shell.
+                        if [ -n "$PUBLISH_NODE_FILTER" ]; then
+                            if [ -s build/changelog.md ]; then
+                                ./gradlew chiseledPublish -Ppublish.nodes="$PUBLISH_NODE_FILTER" -Pchangelog="$(cat build/changelog.md)" --stacktrace
+                            else
+                                ./gradlew chiseledPublish -Ppublish.nodes="$PUBLISH_NODE_FILTER" --stacktrace
+                            fi
                         else
-                            ./gradlew chiseledPublish $NODES_ARG --stacktrace
+                            if [ -s build/changelog.md ]; then
+                                ./gradlew chiseledPublish -Pchangelog="$(cat build/changelog.md)" --stacktrace
+                            else
+                                ./gradlew chiseledPublish --stacktrace
+                            fi
                         fi
                     '''
                 }
