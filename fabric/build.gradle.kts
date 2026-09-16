@@ -35,6 +35,25 @@ architectury {
     fabric()
 }
 
+// See build.gradle.kts (the common project) for the full LWJGL 3.4.3 multi-release-jar rationale.
+// runClient is a SEPARATE Gradle invocation from the production build (hud_ingame.sh/boot_smoke.sh
+// call it directly) with its own Architectury Runtime transformer pass -- it needs the same patch
+// applied again, immediately before it runs, or it hits the identical "major version 71" crash at
+// launch. (A previous version of this patch only covered transformProduction<Loader> and assumed
+// patching the Gradle module cache once was enough for every later consumer; it was not -- a fresh
+// `./gradlew runClient` invocation is a different process/daemon and does not see mutations another
+// invocation made to a file it already resolved and cached metadata for.)
+if (minecraft == "26.3") {
+    // Referencing common.tasks directly (rather than via project(path, configurationName), which
+    // Gradle special-cases) does not itself force :26.3 to configure under configuration-on-demand
+    // (enabled project-wide for build speed) -- without this, patchLwjglMrjar may not exist yet
+    // when runClient's dependsOn tries to resolve it, depending on evaluation order.
+    evaluationDependsOn(common.path)
+    tasks.named("runClient") {
+        dependsOn(common.tasks.named("patchLwjglMrjar"))
+    }
+}
+
 val commonBundle: Configuration by configurations.creating {
     isCanBeConsumed = false
     isCanBeResolved = true
