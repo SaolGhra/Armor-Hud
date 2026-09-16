@@ -1,12 +1,17 @@
-// Armor HUD CI — builds the whole Stonecutter/Architectury matrix, verifies it, and publishes.
+// Armor HUD CI — builds the Stonecutter/Architectury matrix, verifies it, and publishes.
 //
 // Two things this is for:
 //
-//   1. A change lands -> build every loader/version, collect the jars, run every check that can run
-//      unattended, and report. Progress goes to ntfy as it happens, so the state of a long run is
-//      visible from a phone without opening Jenkins.
-//   2. When the results look right -> publish, on request only. GitHub release with the supplied
-//      changelog, and the same notes to Modrinth across the matrix.
+//   1. A push lands -> build, collect the jars, run every check that can run unattended, and report.
+//      Progress goes to ntfy as it happens, so the state of a run is visible from a phone without
+//      opening Jenkins. By default this means each loader's LATEST MC version only (HUD_NODES/
+//      PUBLISH_NODES default to "latest") -- the routine push adds or fixes something new, not the
+//      whole history, so that is what gets rebuilt and reverified every time. Clear either field for
+//      a genuine whole-matrix run (a shared-code change, or a release where every node moved).
+//   2. When the results look right -> publish, gated on approval. PUBLISH_MODRINTH defaults on, so a
+//      routine push runs straight through to the Release? prompt and waits (ntfy + Jenkins input())
+//      for a human to actually approve it — nothing reaches Modrinth/GitHub un-approved regardless
+//      of what PUBLISH_* defaults to. GitHub release stays opt-in (PUBLISH_GITHUB off by default).
 //
 // No SNAPSHOT parameter yet, deliberately: snapshots are currently on the 26.3 line, and the whole
 // 26.x line is unbuildable because architectury-loom has no unobfuscated/no-remap support (26.1+
@@ -54,10 +59,62 @@ def loadNodeMap() {
     return map
 }
 
+// Numeric, dot-separated tuple comparison of MC version strings -- "1.21.9" < "1.21.10", and the
+// 26.x scheme sorts naturally after 1.21.x this way too. Mirrors audit_jars.py's vkey()/ge(). A
+// plain string/lexicographic compare gets both of those wrong.
+//
+// Built only from .split()/.each{}/if/<</bracket access -- the same handful of constructs
+// loadNodeMap() and expandNodes() already prove work under the CPS sandbox. See loadNodeMap()'s own
+// comment: several ordinary-looking Groovy/GDK methods (computeIfAbsent+Closure was the last one)
+// are not on script-security's whitelist and throw MissingMethodException at runtime, not at
+// review time -- not worth risking on .collect{}/2-arg Map.each{}/the <=> operator, none of which
+// are exercised anywhere else in this file.
+def vkey(String v) {
+    def digits = []
+    v.split(/[^0-9]+/).each { p -> if (p) { digits << (p as int) } }
+    return digits
+}
+def versionCompare(String a, String b) {
+    def ka = vkey(a)
+    def kb = vkey(b)
+    int n = ka.size()
+    if (kb.size() > n) { n = kb.size() }
+    for (int i = 0; i < n; i++) {
+        int va = i < ka.size() ? ka[i] : 0
+        int vb = i < kb.size() ? kb[i] : 0
+        if (va > vb) { return 1 }
+        if (va < vb) { return -1 }
+    }
+    return 0
+}
+
+// The default working set for a routine push: each loader's newest MC version, EXCEPT forge --
+// it is permanently 1.20.1-only, so its "latest" never moves and re-verifying/re-publishing it on
+// every push would just be redundant work. Touch it explicitly via HUD_NODES/PUBLISH_NODES on the
+// (rare) push that actually changes forge-relevant code.
+def latestNodes(Map allVersions) {
+    def nodes = []
+    allVersions.keySet().each { loader ->
+        if (loader == 'forge') { return }
+        def versions = allVersions[loader]
+        def best = null
+        versions.each { v ->
+            if (best == null) { best = v }
+            else if (versionCompare(v, best) > 0) { best = v }
+        }
+        if (best) { nodes << ("${loader} ${best}" as String) }
+    }
+    return nodes
+}
+
 // Expands a ";"-separated "<loader> <mc>" list (bare "<loader>" means every version of it) against
-// the given node map. Empty/blank raw means "everything" — used by both HUD_NODES and PUBLISH_NODES.
+// the given node map. The literal value "latest" resolves to latestNodes() above (the default for
+// both HUD_NODES and PUBLISH_NODES). Empty/blank raw means the WHOLE matrix -- set it explicitly
+// (clear the field) for a release where every node is genuinely new/changed, same as before.
 def expandNodes(String raw, Map allVersions) {
-    def entries = raw?.trim() ? (raw.split(';') as List) : (allVersions.keySet() as List)
+    def trimmed = raw?.trim()
+    if (trimmed == 'latest') { return latestNodes(allVersions) }
+    def entries = trimmed ? (trimmed.split(';') as List) : (allVersions.keySet() as List)
     def nodes = []
     entries.each { rawEntry ->
         def entry = rawEntry.trim()
@@ -80,8 +137,9 @@ pipeline {
                 description: 'Static audit of every built jar: manifest shape, java target, guard ' +
                         'branches, resource paths. Seconds, no game launch.')
         booleanParam(name: 'RUN_HUD_CHECK', defaultValue: true,
-                description: 'In-world HUD pixel assertions across the whole matrix. Launches a real ' +
-                        'client per node under software GL — this is the long one.')
+                description: 'In-world HUD pixel assertions. Launches a real client per node under ' +
+                        'software GL — this is the long one. Scoped by HUD_NODES (default: latest ' +
+                        'only, not the whole matrix).')
         booleanParam(name: 'RUN_CONFIG_CHECK', defaultValue: false,
                 description: 'Drive the mod list to the config screen using real jars in a launcher. ' +
                         'Needs PrismLauncher instances on the agent — not provisioned yet.')
@@ -91,9 +149,11 @@ pipeline {
         booleanParam(name: 'PUBLISH_GITHUB', defaultValue: false,
                 description: 'Create a GitHub release for mod.version and attach every jar, once ' +
                         'approved at the Release? prompt.')
-        booleanParam(name: 'PUBLISH_MODRINTH', defaultValue: false,
+        booleanParam(name: 'PUBLISH_MODRINTH', defaultValue: true,
                 description: 'Upload every jar to Modrinth (needs the modrinth-token credential), ' +
-                        'once approved at the Release? prompt.')
+                        'once approved at the Release? prompt. On by default: the routine case is a ' +
+                        'push that should build, verify and publish PUBLISH_NODES (default: latest ' +
+                        'only) once approved — ASK_TO_RELEASE still gates actually publishing anything.')
         booleanParam(name: 'ASK_TO_RELEASE', defaultValue: true,
                 description: 'When PUBLISH_GITHUB or PUBLISH_MODRINTH is set and every check passes, ' +
                         'pause and ask for confirmation (and the changelog) before publishing, the ' +
@@ -110,17 +170,21 @@ pipeline {
                         'agent\'s OpenGL, and runs ONE node. Minutes instead of an hour.')
         string(name: 'DIAGNOSE_NODE', defaultValue: 'neoforge 1.21.11',
                 description: 'Which node(s) DIAGNOSE_HUD runs, as a ";"-separated list of "<loader> <mc>".')
-        string(name: 'HUD_NODES', defaultValue: '',
+        string(name: 'HUD_NODES', defaultValue: 'latest',
                 description: 'Restrict RUN_HUD_CHECK to a ";"-separated list of "<loader> <mc>" (or ' +
-                        'bare "<loader>" for all its versions). Empty = the whole matrix. Lets a long ' +
-                        'run be split into agent-sized batches.')
-        string(name: 'PUBLISH_NODES', defaultValue: '',
-                description: 'Restrict PUBLISH_GITHUB/PUBLISH_MODRINTH to a ";"-separated list of ' +
-                        '"<loader> <mc>" (or bare "<loader>" for all its versions), same format as ' +
-                        'HUD_NODES. Empty = the whole matrix — use that for a release where every ' +
-                        'node is genuinely new/changed; set this for a release that only adds or ' +
-                        'fixes specific nodes, so the rest keep their existing Modrinth entries ' +
-                        'instead of getting a redundant unchanged one.')
+                        'bare "<loader>" for all its versions). "latest" (the default) means each ' +
+                        'loader\'s newest MC version, forge excluded — the routine push only touched ' +
+                        'something new, not the whole history. Clear this for the whole matrix, or ' +
+                        'split a long full run into agent-sized batches.')
+        string(name: 'PUBLISH_NODES', defaultValue: 'latest',
+                description: 'Restricts BOTH what Build matrix actually builds (so a routine push ' +
+                        'does not pay for the whole matrix) and what PUBLISH_GITHUB/PUBLISH_MODRINTH ' +
+                        'upload, to a ";"-separated list of "<loader> <mc>" (or bare "<loader>" for ' +
+                        'all its versions). "latest" (the default) means each loader\'s newest MC ' +
+                        'version, forge excluded — matches HUD_NODES\' default. Clear this (the whole ' +
+                        'matrix) for a release where every node is genuinely new/changed; set it to ' +
+                        'specific nodes for anything narrower, so the rest keep their existing ' +
+                        'Modrinth entries instead of getting a redundant unchanged one.')
 
         string(name: 'NOTIFY_URL', defaultValue: 'https://notify.saolghra.co.uk/builds',
                 description: 'ntfy topic for progress notifications. Empty disables them.')
@@ -179,6 +243,14 @@ pipeline {
             when { expression { return !params.DIAGNOSE_HUD &&
                     (params.RUN_JAR_AUDIT || params.PUBLISH_GITHUB || params.PUBLISH_MODRINTH) } }
             steps {
+                script {
+                    // Computed once here (rather than separately in Release?/Publish to GitHub/
+                    // Publish to Modrinth, which used to each pay for their own `printNodes` run) and
+                    // reused via env from here on. Whenever either PUBLISH_* is set, this stage's own
+                    // `when` guarantees it runs before Release?/Publish need it.
+                    env.PUBLISH_NODE_FILTER = params.PUBLISH_NODES?.trim() ?
+                            expandNodes(params.PUBLISH_NODES, loadNodeMap()).join(';') : ''
+                }
                 // Retried because the upstream mod mavens are not reliable: a single transient
                 // artifact download failure otherwise reds the entire matrix.
                 retry(2) {
@@ -186,9 +258,13 @@ pipeline {
                         set -e
                         export JAVA_HOME="$WORKSPACE/.jdk/temurin-21"
                         export PATH="$JAVA_HOME/bin:$PATH"
+                        NODES_ARG=""
+                        [ -n "$PUBLISH_NODE_FILTER" ] && NODES_ARG="-Pbuild.nodes=$PUBLISH_NODE_FILTER"
                         # chiseledBuild iterates the whole version x loader matrix from settings.gradle.kts,
-                        # generating each version's source (a direct :loader:version:build would be empty).
-                        ./gradlew chiseledBuild -x runGameTest -x runClientGameTest --stacktrace
+                        # generating each version's source (a direct :loader:version:build would be empty)
+                        # -- or just PUBLISH_NODE_FILTER's nodes when PUBLISH_NODES restricts it (default:
+                        # latest only, so a routine push does not pay for the whole matrix every time).
+                        ./gradlew chiseledBuild $NODES_ARG -x runGameTest -x runClientGameTest --stacktrace
                     '''
                 }
                 script {
@@ -578,30 +654,29 @@ pipeline {
                     (params.PUBLISH_GITHUB || params.PUBLISH_MODRINTH) } }
             steps {
                 script {
-                    def filter = params.PUBLISH_NODES?.trim() ?
-                            expandNodes(params.PUBLISH_NODES, loadNodeMap()).join(';') : ''
-                    withEnv(["PUBLISH_NODE_FILTER=${filter}"]) {
-                        env.RELEASE_JAR_COUNT = sh(script: '''
-                            set -e
-                            VERSION=$(grep -E '^mod\\.version=' gradle.properties | cut -d= -f2)
-                            COUNT=0
-                            for jar in build/libs/*/*.jar; do
-                                case "$jar" in *-sources.jar) continue;; esac
-                                name=$(basename "$jar")
-                                if [ -n "$PUBLISH_NODE_FILTER" ]; then
-                                    rest="${name#armor_hud-}"; rest="${rest%.jar}"
-                                    loader="${rest%%-"$VERSION"+*}"
-                                    mc="${rest##*-"$VERSION"+}"
-                                    case ";$PUBLISH_NODE_FILTER;" in
-                                        *";$loader $mc;"*) ;;
-                                        *) continue ;;
-                                    esac
-                                fi
-                                COUNT=$((COUNT+1))
-                            done
-                            echo "$COUNT"
-                        ''', returnStdout: true).trim()
-                    }
+                    // env.PUBLISH_NODE_FILTER was already computed in Build matrix, whose `when`
+                    // guarantees it ran first whenever this stage can (both gate on PUBLISH_GITHUB
+                    // || PUBLISH_MODRINTH being part of their condition).
+                    env.RELEASE_JAR_COUNT = sh(script: '''
+                        set -e
+                        VERSION=$(grep -E '^mod\\.version=' gradle.properties | cut -d= -f2)
+                        COUNT=0
+                        for jar in build/libs/*/*.jar; do
+                            case "$jar" in *-sources.jar) continue;; esac
+                            name=$(basename "$jar")
+                            if [ -n "$PUBLISH_NODE_FILTER" ]; then
+                                rest="${name#armor_hud-}"; rest="${rest%.jar}"
+                                loader="${rest%%-"$VERSION"+*}"
+                                mc="${rest##*-"$VERSION"+}"
+                                case ";$PUBLISH_NODE_FILTER;" in
+                                    *";$loader $mc;"*) ;;
+                                    *) continue ;;
+                                esac
+                            fi
+                            COUNT=$((COUNT+1))
+                        done
+                        echo "$COUNT"
+                    ''', returnStdout: true).trim()
 
                     if (!params.ASK_TO_RELEASE) {
                         env.RELEASE_NOTES = params.CHANGELOG ?: ''
@@ -643,13 +718,9 @@ pipeline {
                 // at the Release? prompt (or params.CHANGELOG verbatim if ASK_TO_RELEASE was unticked)
                 // — not params.CHANGELOG directly, which is only ever the pre-fill.
                 writeFile file: 'build/changelog.md', text: env.RELEASE_NOTES ?: ''
-                script {
-                    // Empty PUBLISH_NODES (the common "everything is genuinely new" release) attaches
-                    // every built jar, same as before this existed. A restricted list only attaches
-                    // the matching jars — see PUBLISH_NODES' own description for why.
-                    env.PUBLISH_NODE_FILTER = params.PUBLISH_NODES?.trim() ?
-                            expandNodes(params.PUBLISH_NODES, loadNodeMap()).join(';') : ''
-                }
+                // env.PUBLISH_NODE_FILTER was already computed in Build matrix. Empty (the whole-
+                // matrix case, e.g. a release where every node is genuinely new) attaches every
+                // built jar; a restricted list only attaches the matching jars.
                 withCredentials([string(credentialsId: 'github-token', variable: 'GH_TOKEN')]) {
                     sh '''
                         set -e
@@ -720,12 +791,8 @@ PY
                 script { notify("Publishing to Modrinth…", "uploading the matrix", 'rocket') }
                 // See the Publish to GitHub stage: env.RELEASE_NOTES, not params.CHANGELOG directly.
                 writeFile file: 'build/changelog.md', text: env.RELEASE_NOTES ?: ''
-                script {
-                    // Empty PUBLISH_NODES publishes every node, same as before this existed. See
-                    // PUBLISH_NODES' own description, and chiseledPublish's publish.nodes property.
-                    env.PUBLISH_NODE_FILTER = params.PUBLISH_NODES?.trim() ?
-                            expandNodes(params.PUBLISH_NODES, loadNodeMap()).join(';') : ''
-                }
+                // env.PUBLISH_NODE_FILTER was already computed in Build matrix. See PUBLISH_NODES'
+                // own description, and chiseledPublish's publish.nodes property.
                 withCredentials([string(credentialsId: 'modrinth-token', variable: 'MODRINTH_TOKEN')]) {
                     sh '''
                         set -e
