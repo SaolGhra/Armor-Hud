@@ -46,7 +46,10 @@ def loadNodeMap() {
     out.readLines().each { line ->
         def parts = line.trim().split(/\s+/)
         if (parts.size() != 2) { return } // e.g. Stonecutter's own "Running Stonecutter 0.6" banner
-        map.computeIfAbsent(parts[0]) { [] } << parts[1]
+        // Not computeIfAbsent(key) { [] } -- the CPS sandbox doesn't whitelist a Closure there
+        // (needs a Function), and throws MissingMethodException at runtime, not at review time.
+        if (!map.containsKey(parts[0])) { map[parts[0]] = [] }
+        map[parts[0]] << parts[1]
     }
     return map
 }
