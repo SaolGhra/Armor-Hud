@@ -589,7 +589,9 @@ def selftest(repo: str, only: list[str] | None) -> int:
         else:
             if neoforge_prefix(mc) != want_nf[:len(neoforge_prefix(mc))]:
                 problems.append(f"neoforge line: derived {neoforge_prefix(mc)}x, repo pins {want_nf}")
-            if got_beta != want_nf.endswith("-beta"):
+            # Beta -> stable is NeoForge graduating a version, i.e. ordinary upward drift; only a
+            # stable pin that upstream now resolves as beta-only means the resolver is wrong.
+            if got_beta and not want_nf.endswith("-beta"):
                 problems.append(f"neoforge beta flag: derived beta={got_beta}, repo pins {want_nf}")
             if got_nf != want_nf:
                 notes.append(f"neoforge {want_nf} -> {got_nf}")
